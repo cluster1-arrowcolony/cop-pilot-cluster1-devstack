@@ -75,15 +75,21 @@ wraps it in a bundled CFSS, orders and acknowledges it, and waits for the Bluepr
 order's namespace, the executor and the completed order. Then it terminates the service and
 checks that everything is removed.
 
-#### Making a local OpenSlice reachable to peers (SIF, HypO)
+#### Joining the COP-PILOT platform (SIF, HypO)
 
-An OpenSlice of your own can join the COP-PILOT platform: the Secure Integration Fabric (SIF,
-OpenZiti) exposes it to the end-to-end orchestrator, which is then peered with it. That works
-only if every client uses the one URL OpenSlice is configured with. Keycloak names a token's
-issuer after the address it was requested at, and the OpenSlice services reject tokens issued at
-any other address, so a peer using another URL logs in but gets HTTP 401 on every call.
+An open call partner's own OpenSlice joins the platform as the
+[COP-PILOT open call technical documentation](https://github.com/cop-pilot-eu/oc-technical-documentation)
+describes: the Secure Integration Fabric (SIF, OpenZiti) exposes it, and the Hyper Orchestrator
+(HypO) is peered with it. Follow that documentation; the devstack is one way to do its OpenSlice
+installation (the DO layer). It already has what the DO guide requires, an NGINX ingress as a
+NodePort service over HTTP, and needs no change to Keycloak's HTTPS setting: the ingress passes
+every client to Keycloak with an internal address, so Keycloak never demands HTTPS.
 
-Set that URL with `OPENSLICE_URL` in `devstack.env`:
+Set the root URL the guide asks for, `http://<host-ip>:<port>`, as `OPENSLICE_URL` in
+`devstack.env`, with the address of the Linux host that runs the devstack and its Ziti tunneler.
+The platform must use exactly this URL: Keycloak names a token's issuer after the address it was
+requested at, and the OpenSlice services reject tokens issued at any other, so a peer using
+another URL logs in but gets HTTP 401 on every call.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -96,47 +102,38 @@ address needs `make down` and `make up`; a new host name only `make openslice`. 
 IP address through the host and a host name through a DNS rewrite to the ingress; on the host, a
 host name other than `*.localhost` must resolve to `OPENSLICE_BIND`.
 
-Run the Ziti tunneler on the machine that runs the devstack, and give the peering the same URL.
-The Ziti service has two addresses: the one peers dial (its intercept address) and the one your
-tunneler forwards to (its host address). Prefer a Ziti host name for the first and loopback for
-the second, so that OpenSlice is reachable only through SIF:
+OpenSlice is then published on that address, over plain HTTP, to everyone who can reach it, and
+Docker's port rules bypass host firewalls such as ufw (`make up` warns about it). Block the port
+in front of the host so that only the Ziti tunneler on the host reaches it.
 
-```bash
-# devstack.env; the Ziti service intercepts osl-yourorg.ziti:80 and forwards to 127.0.0.1:80
-OPENSLICE_URL=http://osl-yourorg.ziti
-OPENSLICE_BIND=127.0.0.1
-```
-
-and add `127.0.0.1 osl-yourorg.ziti` to `/etc/hosts`, so the devstack's own calls reach it too.
-
-The SIF service-creation pipeline currently uses one address, `SERVICE_IP:SERVICE_PORT`, for both,
-so ask the platform team to create the service with a separate intercept address. If you use the
-pipeline as it is, `OPENSLICE_URL=http://<SERVICE_IP>:<SERVICE_PORT>` works too, but then
-OpenSlice is published on that address, over plain HTTP, to everyone who can reach it: Docker's
-port rules bypass host firewalls such as ufw, and `make up` warns about it. Block the port in
-front of the host, or bind to an address that only the host reaches.
-
-`make peering-check` then does what a peer does, from your host: it checks that OpenSlice runs
+`make peering-check` does what the platform does, from your host: it checks that OpenSlice runs
 with `OPENSLICE_URL`, that Keycloak issues tokens there, logs in with a password grant on the
 `osapiWebClientId` client and reads the service catalog. It logs in as `devstack` unless you set
-`OSL_USER` and `OSL_PASSWORD` to the account the peer will get. Peers list only
-customer-facing service specifications.
+`OSL_USER` and `OSL_PASSWORD`. The platform lists only customer-facing service specifications.
 
-Joining, step by step:
+Joining, step by step, with the guide's sections in brackets:
 
 1. Run `make up` and `make test` with the `OPENSLICE_URL` you will keep. `make test` briefly puts
    a test service specification in the catalog, so run it before the peering.
-2. On the same Linux host (the Ziti tunneler needs Linux and sudo), enroll the Ziti identity you
-   get from the platform team and have them create the Ziti service for your URL, both with the
-   platform's integration pipelines.
-3. Create an account for the peer in Keycloak (realm `openslice`, admin password
-   `OPENSLICE_KEYCLOAK_ADMIN_PASSWORD`) with as few roles as still let
-   `make peering-check OSL_USER=<user> OSL_PASSWORD=<password>` pass. Don't hand out `devstack`,
-   which has every role.
-4. Have the peering done with your URL and that account.
+2. Get access to CloudZiti from the NETC team, create the identity `openslice-oc1-<company>` and
+   enroll the host with their script, which installs the Ziti tunneler (needs Linux and sudo)
+   (SIF).
+3. Create the account HypO logs in with, `oc-<your-username>` with administrator rights in the
+   realm `openslice` (ESO). The Keycloak admin password is `OPENSLICE_KEYCLOAK_ADMIN_PASSWORD` in
+   `.devstack/identities.env`. Check it with
+   `make peering-check OSL_USER=oc-<your-username> OSL_PASSWORD=<password>`.
+4. Ask the NETC team to run the pipelines that expose your OpenSlice in CloudZiti and peer it
+   with HypO, giving them `OPENSLICE_URL` and that account (ESO).
+5. Name your catalog and services as the guide describes, and have the names approved (DO).
+
+The DO guide deploys applications with ArgoCD. In the devstack, OpenSlice deploys through
+ColonyOS instead: CRIDGE may create only Kolony's Blueprints and ColonyProcesses (see
+"What OpenSlice may do in your cluster"), so an order for an ArgoCD Application is refused.
+Other operators' resources are allowed only when listed in `CRIDGE_RESOURCES`, and only in order
+namespaces (see "Your own Kubernetes operator").
 
 Once peered, don't run `make down` or `make clean`: they delete the cluster and with it
-OpenSlice's data, including the catalog the peer has read. Restarting the host is fine.
+OpenSlice's data, including the catalog the platform has read. Restarting the host is fine.
 
 ### `ice`
 
