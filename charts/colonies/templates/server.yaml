@@ -1,0 +1,88 @@
+# Clients: pods use colonies.colonyos.svc:80, the host and the k3d Docker network use the NodePort.
+apiVersion: v1
+kind: Service
+metadata:
+  name: colonies
+spec:
+  type: NodePort
+  selector:
+    app: colonies
+  ports:
+    - name: http
+      port: 80
+      nodePort: {{ .Values.nodePort }}
+---
+# Headless service for the embedded etcd. It must resolve before the pod is ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: colonies-internal
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: colonies
+  ports:
+    - name: etcd-client
+      port: 2379
+    - name: etcd-peer
+      port: 2380
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: colonies-server
+spec:
+  serviceName: colonies-internal
+  replicas: 1
+  selector:
+    matchLabels:
+      app: colonies
+  template:
+    metadata:
+      labels:
+        app: colonies
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      initContainers:
+        # Waits for the database and creates the schema; safe to rerun.
+        - name: create-db
+          image: {{ required "image is required" .Values.image }}
+          command: ["/bin/colonies", "database", "create"]
+          envFrom:
+            - configMapRef:
+                name: colonies-config
+            - secretRef:
+                name: colonies-server
+      containers:
+        - name: colonies
+          image: {{ required "image is required" .Values.image }}
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: colonies-config
+            - secretRef:
+                name: colonies-server
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              exec colonies server start --insecure \
+                --etcdname "$HOSTNAME" --etcdhost "$HOSTNAME.colonies-internal" \
+                --etcdclientport 2379 --etcdpeerport 2380 \
+                --initial-cluster "$HOSTNAME=$HOSTNAME.colonies-internal:2380:2381:80" \
+                --etcddatadir /var/run/etcd
+          readinessProbe:
+            tcpSocket:
+              port: 80
+            periodSeconds: 5
+          volumeMounts:
+            - name: etcd
+              mountPath: /var/run/etcd
+      volumes:
+        # etcd only holds cluster membership here; the database keeps the real state.
+        - name: etcd
+          emptyDir: {}

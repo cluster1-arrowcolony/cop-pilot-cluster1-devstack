@@ -1,0 +1,31 @@
+# Kinds handled by the docker-reconciler. They must exist before any Blueprint of that kind.
+# Definitions are colony-wide in ColonyOS; the namespace only matters to Kubernetes.
+apiVersion: colony.colonyos.io/v1
+kind: BlueprintDefinition
+metadata:
+  name: executor-deployment
+  namespace: kolony
+spec:
+  kind: ExecutorDeployment
+  names:
+    singular: executordeployment
+    plural: executordeployments
+  handler:
+    executorType: docker-reconciler
+    functionName: reconcile
+    reconcileInterval: 60
+---
+apiVersion: colony.colonyos.io/v1
+kind: BlueprintDefinition
+metadata:
+  name: docker-deployment
+  namespace: kolony
+spec:
+  kind: DockerDeployment
+  names:
+    singular: dockerdeployment
+    plural: dockerdeployments
+  handler:
+    executorType: docker-reconciler
+    functionName: reconcile
+    reconcileInterval: 60

@@ -1,0 +1,199 @@
+# The identity CRIDGE uses for this cluster, instead of the cluster admin. Whoever can order a
+# service spec for this cluster in OpenSlice acts through it, so it may only do what OpenSlice
+# orders of Kolony resources need, and only in the namespaces CRIDGE creates for those orders
+# (labelled org.etsi.osl). scripts/cridge-access.sh turns its token into a kubeconfig.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cridge
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cridge
+  namespace: cridge
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cridge-token
+  namespace: cridge
+  annotations:
+    kubernetes.io/service-account.name: cridge
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: devstack-cridge
+rules:
+  # CRIDGE publishes every CRD in the OpenSlice catalog and watches the instances of those it
+  # may list; without access to other kinds it skips them.
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [colony.colonyos.io]
+    resources: [blueprints, colonyprocesses]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # One namespace per service order, deleted some minutes after the order is terminated.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, delete]
+  # CRIDGE reports the Secrets, Services and ConfigMaps of each order namespace to OpenSlice and
+  # deletes them with the namespace; it cannot deploy without watching them. RBAC cannot limit
+  # reads to the order namespaces, so this identity can read these kinds in every namespace,
+  # Secrets included. CRIDGE itself only watches the namespaces it created; the policy below
+  # limits its deletes to those.
+  - apiGroups: [""]
+    resources: [secrets, services, configmaps]
+    verbs: [list, watch, delete, deletecollection]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: devstack-cridge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: devstack-cridge
+subjects:
+  - kind: ServiceAccount
+    name: cridge
+    namespace: cridge
+---
+# RBAC cannot tell namespaces apart by label. CRIDGE labels the namespaces it creates
+# org.etsi.osl=org.etsi.osl, so keep it to those: it must not delete or write into others.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: devstack-cridge-namespaces
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        resources: [namespaces]
+        operations: [CREATE, DELETE]
+      - apiGroups: [colony.colonyos.io]
+        apiVersions: ["*"]
+        resources: [blueprints, colonyprocesses]
+        operations: [CREATE, UPDATE, DELETE]
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        resources: [secrets, services, configmaps]
+        operations: [DELETE]
+  matchConditions:
+    - name: cridge
+      expression: request.userInfo.username == 'system:serviceaccount:cridge:cridge'
+  variables:
+    # The namespace itself for namespace requests, the containing namespace otherwise.
+    - name: ns
+      expression: >-
+        request.resource.resource == 'namespaces'
+          ? (request.operation == 'DELETE' ? oldObject : object)
+          : namespaceObject
+  validations:
+    - expression: >-
+        variables.ns != null && has(variables.ns.metadata.labels) &&
+        'org.etsi.osl' in variables.ns.metadata.labels
+      messageExpression: >-
+        'CRIDGE may only use namespaces labelled org.etsi.osl, not ' +
+        (variables.ns != null ? variables.ns.metadata.name : request.namespace)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: devstack-cridge-namespaces
+spec:
+  policyName: devstack-cridge-namespaces
+  validationActions: [Deny]
+---
+# The docker-reconciler runs Blueprints on the host's Docker exactly as specified, so a
+# privileged container, a host bind mount or a host port would give the orderer the host.
+# ExecutorDeployment specs mount every volume from the host and publish every port on it;
+# DockerDeployment specs do so for "bind" volumes and ports with a "host" port. Their "named"
+# volumes become "<name>:<mountPath>" binds, which Docker mounts from the host when the name is
+# a path, so names must be plain Docker volume names.
+#
+# Only the kinds in blueprint-definitions.yaml and the fields of the reconciler's spec types
+# (docker-reconciler pkg/reconciler/types.go) are accepted, so whatever the reconciler adds later
+# stays refused until it has been checked here; extend the lists then. Two defined fields are left
+# out: envFile and network. The reconciler ignores them today, and once it reads them they would
+# reach outside the container (a file on the reconciler's filesystem, a Docker network driver).
+# Container labels may not use the colonies. prefix, which the reconciler's own labels have:
+# user labels override them, and the reconciler tracks and removes its containers by them.
+#
+# The reconciler decodes these specs with Go's encoding/json, which matches keys
+# case-insensitively, including Unicode folds such as "ſ" for "s". So keys are compared in
+# lower case, and keys outside the lists, non-ASCII ones included, are refused.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: devstack-cridge-blueprint-host-access
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [colony.colonyos.io]
+        apiVersions: ["*"]
+        resources: [blueprints]
+        operations: [CREATE, UPDATE]
+  matchConditions:
+    - name: cridge
+      expression: request.userInfo.username == 'system:serviceaccount:cridge:cridge'
+  variables:
+    - name: data
+      expression: "has(object.spec.data) ? object.spec.data : {}"
+    - name: instances
+      expression: >-
+        variables.data.filter(k, k.lowerAscii() == 'instances')
+          .map(k, variables.data[k]).filter(l, type(l) == list)
+  validations:
+    - expression: >-
+        has(object.spec.kind) && object.spec.kind in ['ExecutorDeployment', 'DockerDeployment']
+      message: Blueprints ordered through OpenSlice must be ExecutorDeployments or DockerDeployments
+    # The fields of both kinds in one list. The reconciler ignores the other kind's fields, and
+    # the rules below check both shapes whatever the kind.
+    - expression: >-
+        variables.data.all(k, k.lowerAscii() in ['image', 'replicas', 'executortype',
+          'executorname', 'cpu', 'memory', 'env', 'command', 'args', 'entrypoint', 'privileged',
+          'volumes', 'ports', 'instances']) &&
+        variables.instances.all(l, l.all(i, i.all(k, k.lowerAscii() in ['name', 'type', 'image',
+          'command', 'args', 'environment', 'ports', 'volumes', 'dependson', 'restartpolicy',
+          'healthcheck', 'resources', 'labels', 'privileged', 'user', 'workingdir', 'hostname']) &&
+          i.all(k, k.lowerAscii() != 'volumes' ||
+            i[k].all(v, v.all(f, f.lowerAscii() in ['type', 'name', 'mountpath', 'readonly']))) &&
+          i.all(k, k.lowerAscii() != 'ports' ||
+            i[k].all(p, p.all(f, f.lowerAscii() in ['container', 'host', 'protocol'])))))
+      message: Blueprint data may only use the fields the docker-reconciler defines, in ASCII
+    - expression: >-
+        !variables.data.exists(k, k.lowerAscii() == 'privileged' && variables.data[k] == true) &&
+        !variables.instances.exists(l, l.exists(i,
+          i.exists(k, k.lowerAscii() == 'privileged' && i[k] == true)))
+      message: Blueprints ordered through OpenSlice may not run privileged containers
+    - expression: >-
+        !variables.data.exists(k, k.lowerAscii() == 'volumes' && size(variables.data[k]) > 0) &&
+        variables.instances.all(l, l.all(i, i.all(k, k.lowerAscii() != 'volumes' ||
+          i[k].all(v, v.all(f,
+            (f.lowerAscii() != 'type' || v[f] in ['named', 'tmpfs']) &&
+            (f.lowerAscii() != 'name' ||
+              (type(v[f]) == string && v[f].matches('^[A-Za-z0-9][A-Za-z0-9_.-]*$'))))))))
+      message: Blueprints ordered through OpenSlice may not mount host paths
+    - expression: >-
+        !variables.data.exists(k, k.lowerAscii() == 'ports' && size(variables.data[k]) > 0) &&
+        !variables.instances.exists(l, l.exists(i, i.exists(k, k.lowerAscii() == 'ports' &&
+          i[k].exists(p, p.exists(f, f.lowerAscii() == 'host' && p[f] != 0)))))
+      message: Blueprints ordered through OpenSlice may not publish ports on the host
+    - expression: >-
+        variables.instances.all(l, l.all(i, i.all(k, k.lowerAscii() != 'labels' ||
+          type(i[k]) != map || i[k].all(n, !n.startsWith('colonies.')))))
+      message: Blueprints ordered through OpenSlice may not set the reconciler's colonies.* labels
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: devstack-cridge-blueprint-host-access
+spec:
+  policyName: devstack-cridge-blueprint-host-access
+  validationActions: [Deny]

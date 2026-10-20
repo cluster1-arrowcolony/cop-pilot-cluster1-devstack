@@ -1,0 +1,18 @@
+# sha256 of every download scripts/tools.sh makes: <tool> <version> <os>/<arch> <sha256>.
+# Written by 'make checksums' from the upstream checksum files after a version bump.
+k3d v5.9.0 linux/amd64 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
+k3d v5.9.0 linux/arm64 03cde5cf23e6e8e67de5a039ecf26e5b85aca82fba3e5d13dadf904cd218a250
+k3d v5.9.0 darwin/amd64 b4aabc37534f95b9c764e7823f2df923f50d57600837aa60a06266cce47db732
+k3d v5.9.0 darwin/arm64 fe106541d5d0a3f18debcd4d432a16f8c0ce3e6ddc06f8fbb6f696a122313e00
+kubectl v1.31.14 linux/amd64 8791ec7c8966b61420d55103a5fb948de9f0ca3d7306d789734975ad9704bdb0
+kubectl v1.31.14 linux/arm64 3abb0c2d7121e1833831f56fd857a93de386e76d14b64baf86220d0afe495209
+kubectl v1.31.14 darwin/amd64 efcaa4da4ff8d1a4d08e972f24c06ab99de2f16bd91c436fd602a275b73d3b78
+kubectl v1.31.14 darwin/arm64 ee72e65cc206edc9b0d878e6d896fa31683dc1ba4c04944984efa07eebfc4725
+helm v3.22.0 linux/amd64 1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb
+helm v3.22.0 linux/arm64 f14e804dfee240f55525b667488fe9adca349e63e00c9af634c0beb1421ac310
+helm v3.22.0 darwin/amd64 bd1d09f316558dda23698527859600936fed1371021ce0f2272d66b2fdcfa69c
+helm v3.22.0 darwin/arm64 4c9982a6cdeb458b60258df66b55398ca5b19293f6877faffe2909ad6f23dfe0
+colonies v1.9.10 linux/amd64 559e1a90ea8963ac17ab0615fa6bc13d133963ecaf701df9ce2b694dcfb5a48a
+colonies v1.9.10 linux/arm64 99d6527298e8ff82decde3d73c01df2d250aac1c47f547f6819af78cbc5d0b66
+colonies v1.9.10 darwin/amd64 4f914bd3c49d1e2b79f95792540142648c6bf58d575afab6b9c30419e47663bc
+colonies v1.9.10 darwin/arm64 24701860819f669d08f4e3e12a9ec272cd08f08250f3856d7916bcc0672a1f0b

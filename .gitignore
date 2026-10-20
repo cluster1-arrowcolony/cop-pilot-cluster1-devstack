@@ -1,0 +1,3 @@
+# Generated state: tools, keys, kubeconfigs. Never commit.
+/.devstack/
+/devstack.env

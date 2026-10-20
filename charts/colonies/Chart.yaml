@@ -1,0 +1,5 @@
+apiVersion: v2
+name: colonies
+description: Single-node ColonyOS server and TimescaleDB for the COP-PILOT Cluster 1 devstack
+type: application
+version: 0.1.0

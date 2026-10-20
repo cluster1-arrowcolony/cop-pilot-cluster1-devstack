@@ -1,0 +1,12 @@
+# Set by scripts/colonies.sh: the images from versions.env, the keys from .devstack/identities.env.
+image: ""
+serverPrvKey: ""
+serverId: ""
+dbPassword: ""
+
+nodePort: 30080
+timezone: Europe/Stockholm
+
+db:
+  image: ""
+  storage: 2Gi

@@ -1,0 +1,36 @@
+# The API server's authorization chain, mounted into the k3d server by scripts/cluster.sh. It is
+# k3s's usual Node and RBAC, after one rule for CRIDGE's ServiceAccount (manifests/cridge-access.yaml).
+#
+# CRIDGE watches Secrets, Services and ConfigMaps in the namespace it creates for each service
+# order, which is named after the order's ID, a UUID. RBAC cannot grant rights in namespaces that
+# do not exist yet, so its ClusterRole allows these kinds everywhere, and this rule takes them away
+# again outside namespaces named like a UUID: there CRIDGE could read the colony key, the ColonyOS
+# server key and the cluster's own TLS keys.
+#
+# Kubernetes has no CEL deny rule, so the rule is a webhook that is never reachable: requests that
+# match its conditions fail closed (failurePolicy: Deny) and the API server answers 500, whatever
+# RBAC says. Other requests skip it.
+apiVersion: apiserver.config.k8s.io/v1beta1
+kind: AuthorizationConfiguration
+authorizers:
+  - type: Webhook
+    name: devstack-cridge-order-namespaces
+    webhook:
+      timeout: 3s
+      subjectAccessReviewVersion: v1
+      matchConditionSubjectAccessReviewVersion: v1
+      failurePolicy: Deny
+      connectionInfo:
+        type: KubeConfigFile
+        kubeConfigFile: /etc/devstack/apiserver/nowhere.kubeconfig
+      matchConditions:
+        - expression: >-
+            request.user == 'system:serviceaccount:cridge:cridge' &&
+            has(request.resourceAttributes) &&
+            request.resourceAttributes.resource in ['secrets', 'services', 'configmaps'] &&
+            !(has(request.resourceAttributes.namespace) &&
+              request.resourceAttributes.namespace.matches('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'))
+  - type: Node
+    name: node
+  - type: RBAC
+    name: rbac

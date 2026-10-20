@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: colonies-config
+data:
+  COLONIES_SERVER_TLS: "false"
+  COLONIES_SERVER_HTTP_PORT: "80"
+  COLONIES_DB_HOST: colonies-db
+  COLONIES_DB_PORT: "5432"
+  COLONIES_DB_USER: postgres
+  COLONIES_DB_TIMESCALEDB: "true"
+  COLONIES_VERBOSE: "false"
+  COLONIES_SERVER_PROFILER: "false"
+  COLONIES_SERVER_PROFILER_PORT: "6060"
+  COLONIES_CRON_CHECKER_PERIOD: "1000"
+  COLONIES_GENERATOR_CHECKER_PERIOD: "500"
+  COLONIES_EXCLUSIVE_ASSIGN: "false"
+  # Reconcilers re-register on every restart; without this they fail with "already exists".
+  COLONIES_ALLOW_EXECUTOR_REREGISTER: "true"
+  COLONIES_RETENTION: "false"
+  COLONIES_RETENTION_POLICY: "604800"
+  COLONIES_DB_MAX_OPEN_CONNS: "20"
+  COLONIES_DB_MAX_IDLE_CONNS: "20"
+  COLONIES_DB_CONN_MAX_LIFETIME: "300"
+  COLONIES_DB_CONN_MAX_IDLE_TIME: "60"
+  TZ: {{ .Values.timezone | quote }}

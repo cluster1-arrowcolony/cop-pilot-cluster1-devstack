@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: colonies-db
+spec:
+  selector:
+    app: colonies-db
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: colonies-db
+spec:
+  serviceName: colonies-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: colonies-db
+  template:
+    metadata:
+      labels:
+        app: colonies-db
+    spec:
+      containers:
+        - name: timescaledb
+          image: {{ required "db.image is required" .Values.db.image }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: colonies-server
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.db.storage }}
