@@ -201,6 +201,27 @@ the `cridge/cridge` ServiceAccount from `manifests/cridge-access.yaml`:
 `make test` checks these limits (`scripts/test-cridge-access.sh`). Blueprints and namespaces you
 create yourself are not restricted.
 
+### Your own Kubernetes operator
+
+Kolony is one operator that handles OpenSlice orders; for some services, an operator of your
+own can be easier to use. CRIDGE publishes your operator's CRD in the OpenSlice catalog like any
+other, but may create its resources only once you list them in `devstack.env`:
+
+```bash
+CRIDGE_RESOURCES="widgets.example.com"   # <plural>.<group>, space-separated
+```
+
+Then run `make openslice`. CRIDGE gets the same rights on these resources as on Blueprints, and
+the same limit to the order namespaces; a cluster-scoped resource is refused everywhere.
+Built-in Kubernetes kinds and Kolony's own kinds cannot be listed. Removing the setting removes
+the access again, and `make test` checks it. CRIDGE publishes a CRD you install later without a
+restart. It names the resources it creates itself (`cr` and an ID), so your operator should not
+rely on the name in the service specification's resource.
+
+Whoever can order your service acts through CRIDGE, so whatever your operator does with a
+resource, an order can make it do. The devstack checks the fields of Blueprints only; your
+operator has to refuse what orders must not ask for, such as privileged Pods or host paths.
+
 ### Using catalog specs written for another cluster
 
 A CR-based RFSS names its cluster in its resource specification and in the

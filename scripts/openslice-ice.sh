@@ -162,6 +162,7 @@ cridge() {
 		      labels: {app: cridge}
 		      annotations:
 		        devstack/broker: "$broker"
+		        devstack/resources: "$CRIDGE_RESOURCES"
 		        devstack/secret: "$hash"
 		    spec:
 		      containers:

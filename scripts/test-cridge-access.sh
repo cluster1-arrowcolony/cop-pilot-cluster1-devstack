@@ -2,7 +2,7 @@
 # Check what CRIDGE's identity may do (manifests/cridge-access.yaml), by impersonating it.
 # Writes are server-side dry runs, so nothing is created or deleted.
 source "$(dirname "$0")/lib.sh"
-need kubectl openssl
+need kubectl openssl jq
 
 AS=(--as=system:serviceaccount:cridge:cridge)
 # CRIDGE names each order namespace after the order's ID, and apiserver/authorization.yaml lets it
@@ -101,7 +101,45 @@ expect deny "reading Secrets in kolony" get secrets -n kolony
 expect deny "reading Secrets in all namespaces" get secrets -A
 expect deny "reading Services in colonyos" get services -n colonyos
 expect deny "reading ConfigMaps in kube-system" get configmaps -n kube-system
+
+# CRIDGE_RESOURCES: an operator's resources, with the namespace rule copied from Blueprints.
+for r in $CRIDGE_RESOURCES; do
+	if [[ "$(kubectl auth can-i "${AS[@]}" create "$r" -n "$NS" 2>/dev/null)" == yes ]]; then
+		ok "CRIDGE: creating $r in an order namespace: allowed (RBAC)"
+	else
+		warn "CRIDGE: creating $r in an order namespace: refused by RBAC, expected allowed"
+		failures=$((failures + 1))
+	fi
+	vap="$(kubectl get validatingadmissionpolicy devstack-cridge-resources -o json 2>/dev/null)" || vap='{}'
+	base="$(kubectl get validatingadmissionpolicy devstack-cridge-namespaces -o json)"
+	if jq -e --arg g "${r#*.}" --arg res "${r%%.*}" --argjson base "$base" '
+		any(.spec.matchConstraints.resourceRules[]; .apiGroups == [$g] and .resources == [$res])
+		and .spec.validations == $base.spec.validations and .spec.variables == $base.spec.variables
+		and .spec.matchConditions == $base.spec.matchConditions' <<<"$vap" >/dev/null; then
+		ok "CRIDGE: $r limited to order namespaces by the same rule as Blueprints"
+	else
+		warn "CRIDGE: $r is not covered by policy devstack-cridge-resources, or its rule differs from devstack-cridge-namespaces"
+		failures=$((failures + 1))
+	fi
+	# A real request where the CRD is installed. Its schema may reject a bare object before the
+	# policy sees it, so only a policy refusal counts, and a schema error skips the check.
+	kind="$(kubectl get crd "$r" -o jsonpath='{.spec.names.kind}' 2>/dev/null || true)"
+	version="$(kubectl get crd "$r" -o jsonpath='{.spec.versions[?(@.storage==true)].name}' 2>/dev/null || true)"
+	if [[ -n "$kind" && -n "$version" ]]; then
+		out="$(kubectl "${AS[@]}" create --dry-run=server -f - 2>&1 <<<"{\"apiVersion\":\"${r#*.}/$version\",\"kind\":\"$kind\",\"metadata\":{\"name\":\"policy-test\",\"namespace\":\"default\"}}")" || true
+		if [[ "$(denial "$out" || true)" == policy:* ]]; then
+			ok "CRIDGE: $r in another namespace: refused ($(denial "$out"))"
+		elif [[ "$out" == *"is invalid"* ]]; then
+			info "CRIDGE: $r in another namespace: not checked, the CRD's schema refuses a bare object first"
+		else
+			warn "CRIDGE: $r in another namespace: ${out%%$'\n'*}, expected a policy refusal"
+			failures=$((failures + 1))
+		fi
+	else
+		info "CRIDGE: $r is not installed, so only RBAC and the policy were checked"
+	fi
+done
 expect allow "deleting an order namespace" delete namespace "$NS"
 
 ((failures == 0)) || die "$failures CRIDGE access check(s) failed; see manifests/cridge-access.yaml and apiserver/authorization.yaml (a cluster created before that file needs 'make down' and 'make up')"
-ok "CRIDGE is limited to Kolony resources in its own namespaces"
+ok "CRIDGE is limited to Kolony resources${CRIDGE_RESOURCES:+ and $CRIDGE_RESOURCES} in its own namespaces"
