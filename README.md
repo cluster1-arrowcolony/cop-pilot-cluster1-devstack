@@ -4,6 +4,12 @@ A one-command development environment for the COP-PILOT (Grant Agreement 1011898
 stack: **ColonyOS** and the **Kolony** operator on a local Kubernetes cluster, optionally driven by
 **ETSI OpenSlice**, either a local instance or the shared Cluster 1 instance at RISE ICE.
 
+It is meant for development and testing: trying how OpenSlice orders are deployed through
+ColonyOS, and developing executors and service specifications on your own machine. An
+OpenSlice that is part of the COP-PILOT platform is set up as the
+[COP-PILOT open call technical documentation](https://github.com/cop-pilot-eu/oc-technical-documentation)
+describes; the devstack's local OpenSlice is separate from it.
+
 ```
              OpenSlice (local, or ICE)  -- service order -+
                                                           | Artemis (JMS)
@@ -75,13 +81,15 @@ wraps it in a bundled CFSS, orders and acknowledges it, and waits for the Bluepr
 order's namespace, the executor and the completed order. Then it terminates the service and
 checks that everything is removed.
 
-#### Joining the COP-PILOT platform (SIF, HypO)
+#### Connecting the devstack's OpenSlice to the platform (SIF, HypO)
 
-An open call partner's own OpenSlice joins the platform as the
+The devstack is for development and testing, and an open call partner's platform OpenSlice is
+set up as the
 [COP-PILOT open call technical documentation](https://github.com/cop-pilot-eu/oc-technical-documentation)
-describes: the Secure Integration Fabric (SIF, OpenZiti) exposes it, and the Hyper Orchestrator
-(HypO) is peered with it. Follow that documentation; the devstack is one way to do its OpenSlice
-installation (the DO layer). It already has what the DO guide requires, an NGINX ingress as a
+describes. The devstack's own OpenSlice can still be connected as a platform instance, for
+example for a demonstration. It then joins as that documentation describes: the Secure Integration Fabric (SIF, OpenZiti) exposes it, and the Hyper
+Orchestrator (HypO) is peered with it. The devstack takes the place of its OpenSlice
+installation (the DO layer) and already has what the DO guide requires, an NGINX ingress as a
 NodePort service over HTTP, and needs no change to Keycloak's HTTPS setting: the ingress passes
 every client to Keycloak with an internal address, so Keycloak never demands HTTPS.
 
