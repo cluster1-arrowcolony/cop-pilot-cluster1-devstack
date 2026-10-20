@@ -152,7 +152,7 @@ matching cluster handles it, so many developers can share ICE. Your cluster show
 catalog as `k3d-<CLUSTER_NAME>@https://k3d-<CLUSTER_NAME>-server-0:6443/`, so **pick a unique
 `CLUSTER_NAME`**.
 
-Ask the ICE OpenSlice admins for:
+`ice` mode needs, from the ICE OpenSlice's administrators:
 
 - its URL (`OSL_ICE_URL`) and an OpenSlice account (`OSL_USER`, `OSL_PASSWORD`) for the portal,
   `make test` and `make retarget`;
