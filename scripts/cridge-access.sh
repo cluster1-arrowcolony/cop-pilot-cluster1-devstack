@@ -23,21 +23,40 @@ cridge_kubeconfig() {
 	echo "$out"
 }
 
+# cridge_resource_list: the custom resources CRIDGE may create besides Kolony's: those listed in
+# CRIDGE_RESOURCES, and Argo CD's Applications with ARGOCD=on (scripts/argocd.sh).
+cridge_resource_list() {
+	local list="$CRIDGE_RESOURCES"
+	if [[ "$ARGOCD" == on && "$OPENSLICE" == local ]]; then
+		list="$list applications.argoproj.io"
+	fi
+	# shellcheck disable=SC2086 # unquoted, to print the list with single spaces
+	echo $list
+}
+
 # cridge_resources: let CRIDGE also create the custom resources listed in CRIDGE_RESOURCES
 # ("<plural>.<group>", e.g. widgets.example.com), for an operator of your own that handles
 # OpenSlice orders. CRIDGE gets the same rights on them as on Blueprints, and the same limit to
 # order namespaces: the policy is a copy of devstack-cridge-namespaces that matches only these
 # resources, so its rule is the one test-cridge-access.sh checks. Without the setting, the access
 # is removed again. What an order may ask of the operator is up to the operator to check.
+# Argo CD's group is refused here, because an Application deploys whatever its chart holds;
+# ARGOCD=on adds Applications with the limits of scripts/argocd.sh instead.
 cridge_resources() {
 	# Runs inside $(...): each step returns on failure, as bash 3.2 has no inherit_errexit.
-	local r rules="" vap
-	if [[ -z "${CRIDGE_RESOURCES// /}" ]]; then
+	local r rules="" vap resources
+	for r in $CRIDGE_RESOURCES; do
+		case "${r#*.}" in
+		argoproj.io) die "CRIDGE_RESOURCES may not name Argo CD's $r; set ARGOCD=on instead" ;;
+		esac
+	done
+	resources="$(cridge_resource_list)"
+	if [[ -z "$resources" ]]; then
 		quiet kubectl delete clusterrolebinding,clusterrole devstack-cridge-resources --ignore-not-found || return
 		quiet kubectl delete validatingadmissionpolicybinding,validatingadmissionpolicy devstack-cridge-resources --ignore-not-found || return
 		return
 	fi
-	for r in $CRIDGE_RESOURCES; do
+	for r in $resources; do
 		[[ "$r" =~ ^[a-z0-9-]+\.[a-z0-9.-]+\.[a-z0-9-]+$ ]] ||
 			die "CRIDGE_RESOURCES entries are <plural>.<group> of a custom resource, e.g. widgets.example.com (got '$r')"
 		case "${r#*.}" in
@@ -67,5 +86,5 @@ cridge_resources() {
 		quiet kubectl apply -f - || return
 	printf '%s\n' '{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":{"name":"devstack-cridge-resources"},"spec":{"policyName":"devstack-cridge-resources","validationActions":["Deny"]}}' |
 		quiet kubectl apply -f - || return
-	info "CRIDGE may also create $CRIDGE_RESOURCES in order namespaces"
+	info "CRIDGE may also create $resources in order namespaces"
 }

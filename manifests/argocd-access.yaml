@@ -1,0 +1,149 @@
+# What OpenSlice orders may deploy through Argo CD with ARGOCD=on (scripts/argocd.sh). An
+# Application installs its chart with Argo CD's own rights, which reach the whole cluster, so the
+# limits are the AppProject "openslice" that argocd.sh writes (which repositories, which
+# namespaces, which kinds) and these two policies.
+#
+# CRIDGE may create Applications only in order namespaces (cridge-access.sh), and only in the
+# project "openslice". Argo CD itself refuses an Application outside the argocd namespace whose
+# project does not list that namespace, so this is a second check with a clearer error. The
+# project allows no cluster-scoped resources, so Argo CD could not create a namespace anyway.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: devstack-cridge-applications
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [argoproj.io]
+        apiVersions: ["*"]
+        resources: [applications]
+        operations: [CREATE, UPDATE]
+  matchConditions:
+    - name: cridge
+      expression: request.userInfo.username == 'system:serviceaccount:cridge:cridge'
+  validations:
+    - expression: has(object.spec.project) && object.spec.project == 'openslice'
+      message: Applications ordered through OpenSlice must use the Argo CD project openslice
+    - expression: >-
+        !has(object.spec.syncPolicy) || (
+          !has(object.spec.syncPolicy.managedNamespaceMetadata) &&
+          (!has(object.spec.syncPolicy.syncOptions) ||
+            !object.spec.syncPolicy.syncOptions.exists(o, o.lowerAscii().startsWith('createnamespace='))))
+      message: Applications ordered through OpenSlice may not create namespaces
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: devstack-cridge-applications
+spec:
+  policyName: devstack-cridge-applications
+  validationActions: [Deny]
+---
+# Pods in order namespaces must meet the Pod Security Standards' "baseline" level: no host
+# namespaces, privileged containers, host paths, host ports, extra capabilities, unconfined
+# seccomp or AppArmor, custom SELinux users or roles, unmasked /proc, unsafe sysctls or Windows
+# host processes. They are what a chart from an allowed repository could otherwise use to take the
+# node, and the docker-reconciler's host with it. Pod Security Admission would check this from a
+# namespace label, but CRIDGE creates the order namespaces without one.
+#
+# The rule holds for every Pod there, whoever creates it: the ReplicaSet controller for a chart's
+# Deployments, or a chart's own ServiceAccount. Order namespaces are those CRIDGE labels
+# org.etsi.osl and those named like an order ID, as an Application's destination must be.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: devstack-order-pods
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        resources: [pods, pods/ephemeralcontainers]
+        operations: [CREATE, UPDATE]
+  variables:
+    - name: order
+      expression: >-
+        namespaceObject != null && (
+          namespaceObject.metadata.name.matches('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') ||
+          (has(namespaceObject.metadata.labels) && 'org.etsi.osl' in namespaceObject.metadata.labels))
+    - name: spec
+      expression: object.spec
+    - name: psc
+      expression: "has(object.spec.securityContext) ? dyn(object.spec.securityContext) : dyn({})"
+    # Containers, init containers and ephemeral containers, with an empty securityContext where
+    # they have none. The lists have different types, hence dyn.
+    - name: containers
+      expression: >-
+        dyn(object.spec.containers) +
+          (has(object.spec.initContainers) ? dyn(object.spec.initContainers) : dyn([])) +
+          (has(object.spec.ephemeralContainers) ? dyn(object.spec.ephemeralContainers) : dyn([]))
+    - name: scs
+      expression: >-
+        variables.containers.map(c, has(c.securityContext) ? c.securityContext : dyn({}))
+  validations:
+    - expression: >-
+        !variables.order || !(
+          (has(variables.spec.hostNetwork) && variables.spec.hostNetwork) ||
+          (has(variables.spec.hostPID) && variables.spec.hostPID) ||
+          (has(variables.spec.hostIPC) && variables.spec.hostIPC))
+      message: Pods in order namespaces may not use the host's network, PID or IPC namespace
+    - expression: >-
+        !variables.order || variables.scs.all(s, !has(s.privileged) || !s.privileged)
+      message: Pods in order namespaces may not run privileged containers
+    - expression: >-
+        !variables.order || !has(variables.spec.volumes) ||
+        variables.spec.volumes.all(v, !has(v.hostPath))
+      message: Pods in order namespaces may not mount host paths
+    - expression: >-
+        !variables.order || variables.containers.all(c, !has(c.ports) ||
+          c.ports.all(p, !has(p.hostPort) || p.hostPort == 0))
+      message: Pods in order namespaces may not use host ports
+    - expression: >-
+        !variables.order || variables.scs.all(s,
+          !has(s.capabilities) || !has(s.capabilities.add) ||
+          s.capabilities.add.all(a, a in ['AUDIT_WRITE', 'CHOWN', 'DAC_OVERRIDE', 'FOWNER',
+            'FSETID', 'KILL', 'MKNOD', 'NET_BIND_SERVICE', 'SETFCAP', 'SETGID', 'SETPCAP',
+            'SETUID', 'SYS_CHROOT']))
+      message: Pods in order namespaces may add only the capabilities of Pod Security baseline
+    - expression: >-
+        !variables.order || ([variables.psc] + variables.scs).all(s,
+          (!has(s.seccompProfile) || !has(s.seccompProfile.type) || s.seccompProfile.type != 'Unconfined') &&
+          (!has(s.appArmorProfile) || !has(s.appArmorProfile.type) || s.appArmorProfile.type != 'Unconfined'))
+      message: Pods in order namespaces may not run without seccomp or AppArmor confinement
+    - expression: >-
+        !variables.order || !has(object.metadata.annotations) ||
+        object.metadata.annotations.all(k,
+          !k.startsWith('container.apparmor.security.beta.kubernetes.io/') ||
+          object.metadata.annotations[k] != 'unconfined')
+      message: Pods in order namespaces may not run without AppArmor confinement
+    - expression: >-
+        !variables.order || ([variables.psc] + variables.scs).all(s, !has(s.seLinuxOptions) || (
+          !has(s.seLinuxOptions.user) && !has(s.seLinuxOptions.role) &&
+          (!has(s.seLinuxOptions.type) || s.seLinuxOptions.type in
+            ['', 'container_t', 'container_init_t', 'container_kvm_t', 'container_engine_t'])))
+      message: Pods in order namespaces may not set SELinux users, roles or other types
+    - expression: >-
+        !variables.order || variables.scs.all(s, !has(s.procMount) || s.procMount == 'Default')
+      message: Pods in order namespaces may not unmask /proc
+    - expression: >-
+        !variables.order || !has(variables.psc.sysctls) ||
+        variables.psc.sysctls.all(s, s.name in ['kernel.shm_rmid_forced',
+          'net.ipv4.ip_local_port_range', 'net.ipv4.ip_unprivileged_port_start',
+          'net.ipv4.tcp_syncookies', 'net.ipv4.ping_group_range', 'net.ipv4.ip_local_reserved_ports',
+          'net.ipv4.tcp_keepalive_time', 'net.ipv4.tcp_fin_timeout', 'net.ipv4.tcp_keepalive_intvl',
+          'net.ipv4.tcp_keepalive_probes'])
+      message: Pods in order namespaces may set only safe sysctls
+    - expression: >-
+        !variables.order || ([variables.psc] + variables.scs).all(s,
+          !has(s.windowsOptions) || !has(s.windowsOptions.hostProcess) || !s.windowsOptions.hostProcess)
+      message: Pods in order namespaces may not run Windows host processes
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: devstack-order-pods
+spec:
+  policyName: devstack-order-pods
+  validationActions: [Deny]

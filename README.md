@@ -135,10 +135,11 @@ Joining, step by step, with the guide's sections in brackets:
 5. Name your catalog and services as the guide describes, and have the names approved (DO).
 
 The DO guide deploys applications with ArgoCD. In the devstack, OpenSlice deploys through
-ColonyOS instead: CRIDGE may create only Kolony's Blueprints and ColonyProcesses (see
-"What OpenSlice may do in your cluster"), so an order for an ArgoCD Application is refused.
-Other operators' resources are allowed only when listed in `CRIDGE_RESOURCES`, and only in order
-namespaces (see "Your own Kubernetes operator").
+ColonyOS: CRIDGE may create only Kolony's Blueprints and ColonyProcesses (see
+"What OpenSlice may do in your cluster"), so an order for an ArgoCD Application is refused
+unless `ARGOCD=on` (see "Helm charts through Argo CD"). Other operators' resources are allowed
+only when listed in `CRIDGE_RESOURCES`, and only in order namespaces (see "Your own Kubernetes
+operator").
 
 Once peered, don't run `make down` or `make clean`: they delete the cluster and with it
 OpenSlice's data, including the catalog the platform has read. Restarting the host is fine.
@@ -221,6 +222,58 @@ rely on the name in the service specification's resource.
 Whoever can order your service acts through CRIDGE, so whatever your operator does with a
 resource, an order can make it do. The devstack checks the fields of Blueprints only; your
 operator has to refuse what orders must not ask for, such as privileged Pods or host paths.
+
+### Helm charts through Argo CD
+
+With `OPENSLICE=local`, `ARGOCD=on` installs Argo CD, so that orders can deploy Helm charts the
+way the DO guide does: as an Argo CD `Application` that names a chart. Argo CD installs a chart
+with its own rights, which reach the whole cluster, so the devstack keeps orders to the order
+namespaces, whoever places them, HypO included once the instance is peered:
+
+- Charts come only from the repositories in `ARGOCD_REPOS` (space-separated); with none, no chart
+  can be deployed.
+- An Application must be in its order's namespace and in the Argo CD project `openslice`, and
+  deploy into a namespace named like an order ID. It may not create namespaces.
+- A chart may not hold cluster-scoped resources (CRDs, ClusterRoles, namespaces), RBAC objects,
+  Ingresses, or Kolony's or Argo CD's own kinds.
+- Pods in order namespaces must meet the Pod Security Standards' "baseline": no privileged
+  containers, host namespaces, host paths or host ports, and no capabilities beyond baseline's.
+  For a chart that asks for more, the Deployment is created but its Pods are refused
+  (`kubectl -n <namespace> describe replicaset`).
+
+So a service specification differs from the DO guide's example in three places: the
+Application names no namespace (CRIDGE then creates it in the order's), its project is
+`openslice` instead of `default`, and it has no `CreateNamespace=true`. As in the example, a
+pre-provision LCM rule writes the order's ID into `spec.destination.namespace`, so the chart is
+deployed next to its Application:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-chart
+  finalizers: [resources-finalizer.argocd.argoproj.io]   # termination removes the chart too
+spec:
+  project: openslice
+  destination:
+    name: in-cluster
+    namespace: "%s"                           # the order's ID, from the LCM rule
+  source:
+    repoURL: https://charts.example.com       # listed in ARGOCD_REPOS
+    chart: my-chart
+    targetRevision: 1.2.3
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+```
+
+Set `_CR_CHECK_FIELD` to `status.health.status` and `_CR_CHECKVAL_AVAILABLE` to `Healthy`. Run
+`make openslice` after changing `ARGOCD` or `ARGOCD_REPOS`. `ARGOCD=off` removes Argo CD again,
+once no Applications are left. `make test` checks these limits and orders a test chart
+(`ARGOCD_TEST_*` in `versions.env`) through OpenSlice and Argo CD, allowing its repository only
+while it runs. `make status` shows how to open Argo CD's UI.
+
+A chart whose Pods need more than baseline allows, such as `NET_ADMIN` or the host network, is
+refused.
 
 ### Using catalog specs written for another cluster
 

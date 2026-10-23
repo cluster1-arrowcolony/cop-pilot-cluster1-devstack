@@ -39,16 +39,6 @@ executor_up() { colonies executor ls --type "$TYPE" 2>/dev/null | grep -q -- "$T
 executor_gone() { ! executor_up; }
 order_completed() { [[ "$(osl GET "/serviceOrdering/v4/serviceOrder/$order" | jq -r .state)" == COMPLETED ]]; }
 
-# terminate: end the services this run created that are still live.
-terminate() {
-	local svcs svc
-	svcs="$(osl GET "/serviceInventory/v4/service" |
-		jq -r --arg t "$TAG " '.[] | select((.name | startswith($t)) and .state != "terminated") | .id')" || return
-	for svc in $svcs; do
-		osl PATCH "/serviceInventory/v4/service/$svc" '{"state":"terminated"}' >/dev/null || return
-	done
-}
-
 # cridge_logs: the end of the log of the CRIDGE that serves this cluster.
 cridge_logs() {
 	local where
@@ -70,7 +60,7 @@ cleanup() {
 	if [[ "$passed" != true && -n "$order" ]]; then
 		diagnostics "$order"
 		cridge_logs
-		terminate >/dev/null 2>&1 || warn "could not terminate the services of order $order in $OSL_URL"
+		osl_terminate "$TAG" >/dev/null 2>&1 || warn "could not terminate the services of order $order in $OSL_URL"
 		for _ in $(seq 30); do cr_gone && break; sleep 2; done
 		kubectl delete namespace "$order" --ignore-not-found --wait=false >/dev/null 2>&1
 	fi
@@ -97,7 +87,7 @@ retry 300 "order $order to complete" order_completed
 ok "order completed; OpenSlice reports the services active"
 
 info "terminating the services"
-terminate
+osl_terminate "$TAG"
 retry 240 "the Blueprint CR to be deleted" cr_gone
 retry 120 "the echo executor to stop" executor_gone
 ok "termination removed the CR, the ColonyOS Blueprint and the executor"

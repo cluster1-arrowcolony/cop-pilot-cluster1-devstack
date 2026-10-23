@@ -2,6 +2,7 @@
 # Check what CRIDGE's identity may do (manifests/cridge-access.yaml), by impersonating it.
 # Writes are server-side dry runs, so nothing is created or deleted.
 source "$(dirname "$0")/lib.sh"
+source "$ROOT/scripts/cridge-access.sh"
 need kubectl openssl jq
 
 AS=(--as=system:serviceaccount:cridge:cridge)
@@ -102,8 +103,10 @@ expect deny "reading Secrets in all namespaces" get secrets -A
 expect deny "reading Services in colonyos" get services -n colonyos
 expect deny "reading ConfigMaps in kube-system" get configmaps -n kube-system
 
-# CRIDGE_RESOURCES: an operator's resources, with the namespace rule copied from Blueprints.
-for r in $CRIDGE_RESOURCES; do
+# CRIDGE_RESOURCES (an operator's resources) and ARGOCD's Applications, with the namespace rule
+# copied from Blueprints.
+resources="$(cridge_resource_list)"
+for r in $resources; do
 	if [[ "$(kubectl auth can-i "${AS[@]}" create "$r" -n "$NS" 2>/dev/null)" == yes ]]; then
 		ok "CRIDGE: creating $r in an order namespace: allowed (RBAC)"
 	else
@@ -142,4 +145,4 @@ done
 expect allow "deleting an order namespace" delete namespace "$NS"
 
 ((failures == 0)) || die "$failures CRIDGE access check(s) failed; see manifests/cridge-access.yaml and apiserver/authorization.yaml (a cluster created before that file needs 'make down' and 'make up')"
-ok "CRIDGE is limited to Kolony resources${CRIDGE_RESOURCES:+ and $CRIDGE_RESOURCES} in its own namespaces"
+ok "CRIDGE is limited to Kolony resources${resources:+ and $resources} in its own namespaces"

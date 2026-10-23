@@ -7,6 +7,7 @@
 # through a CoreDNS rewrite to the ingress service, and an IP address through the host.
 source "$(dirname "$0")/lib.sh"
 source "$ROOT/scripts/cridge-access.sh"
+source "$ROOT/scripts/argocd.sh"
 need kubectl helm git jq curl openssl docker
 
 NS=openslice
@@ -117,6 +118,11 @@ up() {
 	prepare_chart "$chart"
 	ingress
 	kubeconfig="$(cridge_kubeconfig)"
+	if [[ "$ARGOCD" == on ]]; then
+		argocd_up
+	else
+		argocd_down
+	fi
 	if [[ "$OPENSLICE_BIND" != 127.* ]]; then
 		warn "OpenSlice is published on $OPENSLICE_BIND:$OPENSLICE_HOST_PORT, over plain HTTP, to everyone who can reach that address; Docker's port rules bypass host firewalls such as ufw"
 	fi
@@ -196,10 +202,14 @@ keycloak() {
 e2e() {
 	load_identities
 	OSL_URL="$ROOTURL" OSL_USER=devstack OSL_PASSWORD="$OPENSLICE_PASSWORD" "$ROOT/scripts/test-openslice.sh"
+	if [[ "$ARGOCD" == on ]]; then
+		OSL_URL="$ROOTURL" OSL_USER=devstack OSL_PASSWORD="$OPENSLICE_PASSWORD" "$ROOT/scripts/test-argocd.sh"
+	fi
 }
 
 down() {
 	helm uninstall openslice -n "$NS" >/dev/null 2>&1 || true
+	helm uninstall argocd -n "$ARGOCD_NS" >/dev/null 2>&1 || true
 	helm uninstall ingress-nginx -n ingress-nginx >/dev/null 2>&1 || true
 	kubectl -n kube-system delete configmap coredns-custom --ignore-not-found >/dev/null 2>&1 || true
 }

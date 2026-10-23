@@ -12,6 +12,10 @@ echo "ColonyOS  http://localhost:$COLONIES_HOST_PORT  source .devstack/colonies.
 if [[ "$OPENSLICE" == local ]]; then
 	echo "OpenSlice $OPENSLICE_URL  (published at $OPENSLICE_BIND:$OPENSLICE_HOST_PORT)"
 fi
+if [[ "$ARGOCD" == on ]]; then
+	echo "Argo CD   kubectl -n argocd port-forward svc/argocd-server 8443:443, then https://localhost:8443"
+	echo "          as admin: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+fi
 echo
 kubectl get pods -n colonyos -o wide --no-headers 2>/dev/null | awk '{print "  colonyos/" $1, $3}'
 kubectl get pods -n kolony --no-headers 2>/dev/null | awk '{print "  kolony/" $1, $3}'

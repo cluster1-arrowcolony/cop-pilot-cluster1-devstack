@@ -83,3 +83,13 @@ osl_order() {
 osl_ack() {
 	osl PATCH "/serviceOrdering/v4/serviceOrder/$1" '{"state":"ACKNOWLEDGED"}' >/dev/null
 }
+
+# osl_terminate <tag>: end the live services whose names start with "<tag> ", as a test's do.
+osl_terminate() {
+	local svcs svc
+	svcs="$(osl GET "/serviceInventory/v4/service" |
+		jq -r --arg t "$1 " '.[] | select((.name | startswith($t)) and .state != "terminated") | .id')" || return
+	for svc in $svcs; do
+		osl PATCH "/serviceInventory/v4/service/$svc" '{"state":"terminated"}' >/dev/null || return
+	done
+}
