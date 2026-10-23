@@ -49,9 +49,8 @@ kubectl get blueprints -A
 
 `make down` deletes the cluster and containers, and with them everything stored in the cluster,
 such as a local OpenSlice's catalog. It keeps your keys, so the next `make up` comes back with the
-same colony. It also keeps the image caches (see below), so the new cluster does
-not download its images again. `make clean` removes everything, including keys, tools and the
-caches.
+same colony. It also keeps the image caches (see below), so the new cluster does not download its
+images again. `make clean` removes everything, including keys, tools and the caches.
 
 ## OpenSlice modes
 
@@ -83,20 +82,22 @@ checks that everything is removed.
 
 #### Connecting the devstack's OpenSlice to the platform (SIF, HypO)
 
-The devstack is for development and testing, and an open call partner's platform OpenSlice is
-set up as the
+The devstack is for development and testing. A partner's platform OpenSlice is set up as the
 [COP-PILOT open call technical documentation](https://github.com/cop-pilot-eu/oc-technical-documentation)
-describes. The devstack's own OpenSlice can still be connected as a platform instance, for
-example for a demonstration. It then joins as that documentation describes: the Secure Integration Fabric (SIF, OpenZiti) exposes it, and the Hyper
-Orchestrator (HypO) is peered with it. The devstack takes the place of its OpenSlice
-installation (the DO layer) and already has what the DO guide requires, an NGINX ingress as a
-NodePort service over HTTP, and needs no change to Keycloak's HTTPS setting: the ingress passes
-every client to Keycloak with an internal address, so Keycloak never demands HTTPS.
+describes, but the devstack's own OpenSlice can still be connected as a platform instance, for
+example for a demonstration. It then joins as that documentation describes: the Secure
+Integration Fabric (SIF, OpenZiti) exposes it, and the Hyper Orchestrator (HypO) is peered with
+it.
+
+The devstack takes the place of the documentation's OpenSlice installation (the DO layer). It
+already has the NGINX ingress the DO guide requires, as a NodePort service over HTTP. Keycloak's
+HTTPS setting needs no change either. The ingress passes every client to Keycloak with an internal
+address, so Keycloak never demands HTTPS.
 
 Set the root URL the guide asks for, `http://<host-ip>:<port>`, as `OPENSLICE_URL` in
 `devstack.env`, with the address of the Linux host that runs the devstack and its Ziti tunneler.
-The platform must use exactly this URL: Keycloak names a token's issuer after the address it was
-requested at, and the OpenSlice services reject tokens issued at any other, so a peer using
+The platform must use exactly this URL, because Keycloak names a token's issuer after the address
+it was requested at, and the OpenSlice services reject tokens issued at any other. A peer using
 another URL logs in but gets HTTP 401 on every call.
 
 | Setting | Default | Meaning |
@@ -227,8 +228,8 @@ operator has to refuse what orders must not ask for, such as privileged Pods or 
 
 With `OPENSLICE=local`, `ARGOCD=on` installs Argo CD, so that orders can deploy Helm charts the
 way the DO guide does: as an Argo CD `Application` that names a chart. Argo CD installs a chart
-with its own rights, which reach the whole cluster, so the devstack keeps orders to the order
-namespaces, whoever places them, HypO included once the instance is peered:
+with its own rights, which reach the whole cluster, so the devstack limits orders to the order
+namespaces, whoever places them, including HypO once the instance is peered:
 
 - Charts come only from the repositories in `ARGOCD_REPOS` (space-separated); with none, no chart
   can be deployed.
@@ -271,6 +272,33 @@ Set `_CR_CHECK_FIELD` to `status.health.status` and `_CR_CHECKVAL_AVAILABLE` to 
 once no Applications are left. `make test` checks these limits and orders a test chart
 (`ARGOCD_TEST_*` in `versions.env`) through OpenSlice and Argo CD, allowing its repository only
 while it runs. `make status` shows how to open Argo CD's UI.
+
+A chart in an OCI registry, such as the COP-PILOT Harbor that the DO guide uses, is named by the
+registry's address and path without a scheme, in `ARGOCD_REPOS` and in the Application alike:
+
+```yaml
+  source:
+    repoURL: registry.example.com/my-project   # also listed in ARGOCD_REPOS
+    chart: my-chart
+    targetRevision: 1.2.3
+```
+
+For a private registry, Argo CD needs credentials, which the devstack does not set up. Add them as
+a repository Secret in the `argocd` namespace (for Harbor, the password is your CLI secret):
+
+```bash
+source .devstack/colonies.env
+kubectl -n argocd create secret generic my-registry \
+  --from-literal=url=registry.example.com/my-project \
+  --from-literal=type=helm --from-literal=enableOCI=true \
+  --from-literal=username=<user> --from-literal=password=<password>
+kubectl -n argocd label secret my-registry argocd.argoproj.io/secret-type=repository
+```
+
+Its `url` must be the Application's `repoURL`. Without the Secret, Argo CD reports "invalid chart
+URL format" for the Application. Orders cannot read the Secret, because CRIDGE and Pods in order
+namespaces have no access to Secrets in `argocd` (see "What OpenSlice may do in your cluster").
+The Secret lives in the cluster, so add it again after `make down` and `make up`.
 
 Some charts need more than baseline allows, for example to handle network traffic themselves. Two
 exceptions can be allowed, for every Pod in order namespaces:
