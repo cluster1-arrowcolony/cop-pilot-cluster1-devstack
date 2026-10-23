@@ -11,6 +11,8 @@ osl_login() {
 }
 
 # osl <METHOD> <path under /tmf-api> [json-body]
+# A body of @<file> is read from that file, for bodies larger than an argument may be (Linux
+# limits one to 128 KiB).
 osl() {
 	local method=$1 path=$2 body=${3:-}
 	local args=(-sS --fail-with-body -X "$method" -H "Authorization: Bearer $OSL_TOKEN" -H "Accept: application/json")
@@ -33,7 +35,9 @@ osl_cr_rfss() {
 	local name=$1 rspec_name=$2 cr=$3 field=$4 avail=$5 rspec
 	rspec="$(osl_resource_spec "$rspec_name")" || return
 	rspec="$(osl GET "/resourceCatalogManagement/v4/resourceSpecification/$(jq -r .id <<<"$rspec")")" || return
-	jq -n --arg name "$name" --argjson rs "$rspec" --arg cr "$cr" --arg field "$field" --arg avail "$avail" '
+	# The resource spec goes in on stdin: a CRD's can be larger than an argument may be.
+	jq --arg name "$name" --arg cr "$cr" --arg field "$field" --arg avail "$avail" '
+		. as $rs |
 		def val($v): [{value: {value: $v, alias: ""}, valueType: "TEXT", isDefault: true}];
 		def override: {_CR_SPEC: $cr, _CR_CHECK_FIELD: $field, _CR_CHECKVAL_AVAILABLE: $avail};
 		{
@@ -51,8 +55,8 @@ osl_cr_rfss() {
 						end)
 				}
 			]
-		}' >"$STATE/rfss.json" || return
-	osl POST "/serviceCatalogManagement/v4/serviceSpecification" "$(cat "$STATE/rfss.json")" | jq -er '.id // empty'
+		}' <<<"$rspec" >"$STATE/rfss.json" || return
+	osl POST "/serviceCatalogManagement/v4/serviceSpecification" "@$STATE/rfss.json" | jq -er '.id // empty'
 }
 
 # osl_cfss <name> <rfss-id>: customer-facing spec that wraps one RFSS; prints its id.
