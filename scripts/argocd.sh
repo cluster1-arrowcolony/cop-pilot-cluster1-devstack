@@ -10,7 +10,8 @@
 #   destinations in order namespaces, no cluster-scoped resources, and none of the namespaced
 #   kinds that would reach further: RBAC, Ingresses, Kolony's and Argo CD's own kinds.
 # - manifests/argocd-access.yaml holds CRIDGE to that project and its Applications to existing
-#   namespaces, and Pods in order namespaces to the Pod Security Standards' baseline.
+#   namespaces, and Pods in order namespaces to the Pod Security Standards' baseline, with the
+#   exceptions in ARGOCD_POD_CAPABILITIES and ARGOCD_POD_DEVICES (argocd_access below).
 
 ARGOCD_NS=argocd
 # CRIDGE names an order's namespace after the order's ID. Argo CD takes regular expressions,
@@ -46,9 +47,41 @@ argocd_project() {
 		}}' $ARGOCD_REPOS "$@" | quiet kubectl apply -f -
 }
 
+# Capabilities that give a container the host, or much of it, whatever else it is denied.
+HOST_CAPABILITIES="ALL SYS_ADMIN SYS_MODULE SYS_RAWIO SYS_PTRACE SYS_BOOT DAC_READ_SEARCH BPF PERFMON"
+
+# argocd_access [capabilities] [devices]: apply manifests/argocd-access.yaml, with these
+# exceptions to the Pod policy (space-separated), ARGOCD_POD_CAPABILITIES and ARGOCD_POD_DEVICES
+# unless given (make test passes its own for the test).
+argocd_access() {
+	local caps="${1-$ARGOCD_POD_CAPABILITIES}" devices="${2-$ARGOCD_POD_DEVICES}" c d
+	for c in $caps; do
+		[[ "$c" =~ ^[A-Z_]+$ && "$c" != CAP_* ]] ||
+			die "ARGOCD_POD_CAPABILITIES lists capabilities as Kubernetes names them, e.g. NET_ADMIN (got '$c')"
+		[[ " $HOST_CAPABILITIES " != *" $c "* ]] ||
+			die "ARGOCD_POD_CAPABILITIES may not give Pods $c, which reaches the host"
+	done
+	for d in $devices; do
+		[[ "$d" =~ ^/dev/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$d" != *..* ]] ||
+			die "ARGOCD_POD_DEVICES lists character devices under /dev, e.g. /dev/net/tun (got '$d')"
+	done
+	# shellcheck disable=SC2086 # space-separated lists
+	kubectl create --dry-run=client -o json -f "$ROOT/manifests/argocd-access.yaml" |
+		jq -s --argjson caps "$(jq -nc '$ARGS.positional' --args $caps)" \
+			--argjson devices "$(jq -nc '$ARGS.positional' --args $devices)" '{
+			apiVersion: "v1", kind: "List",
+			items: map(if .metadata.name == "devstack-order-pods" and .kind == "ValidatingAdmissionPolicy"
+				then .spec.variables |= map(
+					if .name == "capabilities" then .expression = ($caps | tojson)
+					elif .name == "devices" then .expression = ($devices | tojson)
+					else . end)
+				else . end)}' |
+		quiet kubectl apply -f -
+}
+
 argocd_up() {
 	local values="$STATE/argocd-values.yaml"
-	quiet kubectl apply -f "$ROOT/manifests/argocd-access.yaml"
+	argocd_access
 	cat >"$values" <<-YAML
 		global:
 		  image:
@@ -76,6 +109,9 @@ argocd_up() {
 		warn "ARGOCD_REPOS is empty, so orders cannot deploy any chart through Argo CD"
 	fi
 	ok "Argo CD deploys OpenSlice orders' Applications from ${ARGOCD_REPOS:-no repository} into order namespaces"
+	if [[ -n "${ARGOCD_POD_CAPABILITIES// /}${ARGOCD_POD_DEVICES// /}" ]]; then
+		info "Pods in order namespaces may also use ${ARGOCD_POD_CAPABILITIES:-no other capabilities} and ${ARGOCD_POD_DEVICES:-no host devices}"
+	fi
 }
 
 # argocd_down: remove Argo CD and its policies, unless Applications are left, which need Argo CD

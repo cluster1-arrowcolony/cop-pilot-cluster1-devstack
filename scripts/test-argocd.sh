@@ -57,8 +57,9 @@ cleanup() {
 			warn "could not delete service specification $spec from $OSL_URL; remove it by hand"
 	done
 	kubectl delete namespace "$CHECK" "$DEST" "$LABELLED" --ignore-not-found --wait=false >/dev/null 2>&1
-	# The project again without the test's repository.
+	# The project again without the test's repository, and the Pod policy with the settings' exceptions.
 	argocd_project
+	argocd_access
 }
 trap cleanup EXIT
 
@@ -144,7 +145,8 @@ for ns in "$CHECK" "$LABELLED"; do
 done
 kubectl create namespace "$DEST" --dry-run=client -o yaml | quiet kubectl apply -f -
 
-info "checking Pods in order namespaces (manifests/argocd-access.yaml)"
+info "checking Pods in order namespaces (manifests/argocd-access.yaml), without exceptions"
+argocd_access "" ""
 C='{"name":"a","image":"alpine"}'
 expect_pod allow "plain, in an order namespace" "$CHECK" "{\"containers\":[$C]}"
 expect_pod allow "baseline capability" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"capabilities":{"add":["NET_BIND_SERVICE"]}}}]}'
@@ -162,6 +164,27 @@ expect_pod deny "unconfined AppArmor annotation" "$CHECK" "{\"containers\":[$C]}
 expect_pod deny "SELinux user" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"seLinuxOptions":{"user":"system_u"}}}]}'
 expect_pod deny "unsafe sysctl" "$CHECK" "{\"securityContext\":{\"sysctls\":[{\"name\":\"kernel.msgmax\",\"value\":\"1\"}]},\"containers\":[$C]}"
 expect_pod allow "privileged, in another namespace" default '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
+NET_ADMIN='{"containers":[{"name":"a","image":"alpine","securityContext":{"capabilities":{"add":["NET_ADMIN"]}}}]}'
+tun() { printf '{"containers":[%s],"volumes":[{"name":"tun","hostPath":{"path":"%s"%s}}]}' "$C" "$1" "${2:+,\"type\":\"$2\"}"; }
+expect_pod deny "capability NET_ADMIN" "$CHECK" "$NET_ADMIN"
+expect_pod deny "device /dev/net/tun" "$CHECK" "$(tun /dev/net/tun CharDevice)"
+
+info "checking Pods in order namespaces with the exceptions NET_ADMIN and /dev/net/tun"
+argocd_access NET_ADMIN /dev/net/tun
+expect_pod allow "capability NET_ADMIN" "$CHECK" "$NET_ADMIN"
+expect_pod allow "device /dev/net/tun" "$CHECK" "$(tun /dev/net/tun CharDevice)"
+expect_pod deny "/dev/net/tun without type CharDevice" "$CHECK" "$(tun /dev/net/tun)"
+expect_pod deny "/dev/net/tun as a directory" "$CHECK" "$(tun /dev/net/tun Directory)"
+expect_pod deny "another device" "$CHECK" "$(tun /dev/mem CharDevice)"
+expect_pod deny "capability SYS_ADMIN" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"capabilities":{"add":["SYS_ADMIN"]}}}]}'
+expect_pod deny "privileged" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
+if (argocd_access SYS_ADMIN "" 2>/dev/null); then
+	warn "ARGOCD_POD_CAPABILITIES=SYS_ADMIN: accepted, expected refused"
+	failures=$((failures + 1))
+else
+	ok "ARGOCD_POD_CAPABILITIES=SYS_ADMIN: refused"
+fi
+argocd_access
 
 info "checking the Applications CRIDGE may create"
 R="$ARGOCD_TEST_REPO"

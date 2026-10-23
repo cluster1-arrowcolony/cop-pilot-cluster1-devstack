@@ -237,9 +237,9 @@ namespaces, whoever places them, HypO included once the instance is peered:
 - A chart may not hold cluster-scoped resources (CRDs, ClusterRoles, namespaces), RBAC objects,
   Ingresses, or Kolony's or Argo CD's own kinds.
 - Pods in order namespaces must meet the Pod Security Standards' "baseline": no privileged
-  containers, host namespaces, host paths or host ports, and no capabilities beyond baseline's.
-  For a chart that asks for more, the Deployment is created but its Pods are refused
-  (`kubectl -n <namespace> describe replicaset`).
+  containers, host namespaces, host paths or host ports, and no capabilities beyond baseline's,
+  except those you allow (below). For a chart that asks for more, the Deployment is created but
+  its Pods are refused (`kubectl -n <namespace> describe replicaset`).
 
 So a service specification differs from the DO guide's example in three places: the
 Application names no namespace (CRIDGE then creates it in the order's), its project is
@@ -272,8 +272,20 @@ once no Applications are left. `make test` checks these limits and orders a test
 (`ARGOCD_TEST_*` in `versions.env`) through OpenSlice and Argo CD, allowing its repository only
 while it runs. `make status` shows how to open Argo CD's UI.
 
-A chart whose Pods need more than baseline allows, such as `NET_ADMIN` or the host network, is
-refused.
+Some charts need more than baseline allows, for example to handle network traffic themselves. Two
+exceptions can be allowed, for every Pod in order namespaces:
+
+```bash
+ARGOCD_POD_CAPABILITIES="NET_ADMIN"   # capabilities beyond baseline's, space-separated
+ARGOCD_POD_DEVICES="/dev/net/tun"     # host character devices, space-separated
+```
+
+`NET_ADMIN` lets a Pod configure its own network namespace (interfaces, routes, iptables), and
+`/dev/net/tun` lets it create TUN interfaces there. A Pod mounts a device as a `hostPath` volume
+of `type: CharDevice`; any other host path stays refused. Capabilities that reach the host, such
+as `SYS_ADMIN` or `ALL`, cannot be listed, and privileged containers and the host network stay
+refused, so a chart that sets `privileged: true` has to ask for what it needs instead, such as
+`NET_ADMIN` and a device. Run `make openslice` after changing either setting.
 
 ### Using catalog specs written for another cluster
 

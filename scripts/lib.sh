@@ -17,7 +17,7 @@ export PATH="$BIN:$PATH"
 # here, values already set in the environment (e.g. "make up OPENSLICE=local") win over both.
 SETTINGS=(CLUSTER_NAME OPENSLICE COLONY_NAME LOCATION_NAME COLONIES_HOST_PORT API_HOST_PORT
 	OPENSLICE_URL OPENSLICE_HOST_PORT OPENSLICE_BIND
-	KOLONY_SRC KOLONY_GIT KOLONY_REF IMAGE_CACHE CRIDGE_RESOURCES ARGOCD ARGOCD_REPOS
+	KOLONY_SRC KOLONY_GIT KOLONY_REF IMAGE_CACHE CRIDGE_RESOURCES ARGOCD ARGOCD_REPOS ARGOCD_POD_CAPABILITIES ARGOCD_POD_DEVICES
 	OSL_ICE_URL OSL_ICE_TRANSPORT OSL_ICE_BROKER OSL_ICE_ZITI_IDENTITY OSL_ICE_ZITI_SERVICE OSL_ICE_SSH OSL_ICE_SSH_KEY OSL_ICE_SSH_KNOWN_HOSTS
 	OSL_BROKER_USER OSL_BROKER_PASSWORD OSL_USER OSL_PASSWORD)
 # NAME=value pairs rather than an associative array, which macOS's bash 3.2 lacks.
@@ -49,6 +49,8 @@ unset _v _kv _env_override
 : "${CRIDGE_RESOURCES:=}"          # your operator's resources CRIDGE may also create (cridge-access.sh)
 : "${ARGOCD:=off}"                 # on | off: Argo CD for OpenSlice orders, OPENSLICE=local only (argocd.sh)
 : "${ARGOCD_REPOS:=}"              # the chart repositories orders may deploy from through Argo CD
+: "${ARGOCD_POD_CAPABILITIES:=}"   # capabilities beyond baseline that order Pods may add, e.g. NET_ADMIN
+: "${ARGOCD_POD_DEVICES:=}"        # host character devices order Pods may mount, e.g. /dev/net/tun
 : "${OSL_ICE_URL:=}"               # OPENSLICE=ice: the shared OpenSlice's URL, from its admins
 
 # Docker and Kubernetes names must be lowercase DNS labels; normalise once here.
