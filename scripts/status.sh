@@ -7,6 +7,10 @@ if ! k3d cluster list "$CLUSTER_NAME" >/dev/null 2>&1; then
 	echo "          not created; run 'make up'"
 	exit 0
 fi
+if ! kubectl get --raw /readyz >/dev/null 2>&1; then
+	echo "          stopped or not reachable; run 'make up'"
+	exit 0
+fi
 echo "k8s API   https://127.0.0.1:$API_HOST_PORT   export KUBECONFIG=$KUBECONFIG"
 echo "ColonyOS  http://localhost:$COLONIES_HOST_PORT  source .devstack/colonies.env"
 if [[ "$OPENSLICE" == local ]]; then
@@ -17,9 +21,10 @@ if [[ "$ARGOCD" == on ]]; then
 	echo "          as admin: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
 fi
 echo
-kubectl get pods -n colonyos -o wide --no-headers 2>/dev/null | awk '{print "  colonyos/" $1, $3}'
-kubectl get pods -n kolony --no-headers 2>/dev/null | awk '{print "  kolony/" $1, $3}'
-kubectl get blueprintdefinitions -A --no-headers 2>/dev/null | awk '{print "  definition " $2 " (" $3 ") registered=" $5}'
+# A missing namespace or CRD makes kubectl fail, which pipefail would turn into an exit.
+kubectl get pods -n colonyos -o wide --no-headers 2>/dev/null | awk '{print "  colonyos/" $1, $3}' || true
+kubectl get pods -n kolony --no-headers 2>/dev/null | awk '{print "  kolony/" $1, $3}' || true
+kubectl get blueprintdefinitions -A --no-headers 2>/dev/null | awk '{print "  definition " $2 " (" $3 ") registered=" $5}' || true
 docker ps --filter "network=$DOCKER_NETWORK" --format '  docker/{{.Names}} {{.Status}}' | grep -v "k3d-$CLUSTER_NAME-" || true
 if [[ -f "$IDENTITIES" ]]; then
 	colonies_cli_env
