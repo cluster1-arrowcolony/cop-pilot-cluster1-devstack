@@ -21,6 +21,8 @@ identities() {
 		die "ColonyOS is deployed but $IDENTITIES is gone; run 'make down' and then 'make up'"
 	fi
 	info "generating ColonyOS identities"
+	# Written aside and moved in once complete, so a failed run leaves no file to reuse.
+	local tmp="$IDENTITIES.tmp" v
 	(
 		umask 077
 		{
@@ -29,9 +31,12 @@ identities() {
 			newkey COLONIES_COLONY
 			newkey COLONIES_EXECUTOR
 			echo "COLONIES_DB_PASSWORD=$(openssl rand -hex 16)"
-		} >"$IDENTITIES"
-	)
-	grep -qE '^COLONIES_EXECUTOR_PRVKEY=[0-9a-f]{64}$' "$IDENTITIES" || die "key generation failed; see $IDENTITIES"
+		} >"$tmp"
+	) || die "key generation failed; see $tmp"
+	for v in COLONIES_{SERVER,COLONY,EXECUTOR}_{ID,PRVKEY}; do
+		grep -qE "^$v=[0-9a-f]{64}\$" "$tmp" || die "key generation failed: no $v; see $tmp"
+	done
+	mv "$tmp" "$IDENTITIES"
 }
 
 server() {
