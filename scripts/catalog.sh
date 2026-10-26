@@ -57,7 +57,7 @@ retarget() {
 				elif .name == "clusterMasterURL" then setval($url)
 				else . end]
 		}' <<<"$src" >"$STATE/retarget.json"
-	osl PATCH "/serviceCatalogManagement/v4/serviceSpecification/$clone" "$(cat "$STATE/retarget.json")" >/dev/null
+	osl PATCH "/serviceCatalogManagement/v4/serviceSpecification/$clone" "@$STATE/retarget.json" >/dev/null
 	ok "created '$new_name' ($clone) targeting $CONTEXT@$MASTER_URL"
 	echo "$clone"
 }
