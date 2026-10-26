@@ -24,10 +24,12 @@ cridge_kubeconfig() {
 }
 
 # cridge_resource_list: the custom resources CRIDGE may create besides Kolony's: those listed in
-# CRIDGE_RESOURCES, and Argo CD's Applications with ARGOCD=on (scripts/argocd.sh).
+# CRIDGE_RESOURCES, and Argo CD's Applications with ARGOCD=on (scripts/argocd.sh). With ARGOCD=off,
+# Applications stay while any are left, so that terminating their orders can delete them.
 cridge_resource_list() {
 	local list="$CRIDGE_RESOURCES"
-	if [[ "$ARGOCD" == on && "$OPENSLICE" == local ]]; then
+	if [[ "$OPENSLICE" == local ]] && [[ "$ARGOCD" == on ||
+		-n "$(kubectl get applications.argoproj.io -A -o name 2>/dev/null)" ]]; then
 		list="$list applications.argoproj.io"
 	fi
 	# shellcheck disable=SC2086 # unquoted, to print the list with single spaces
