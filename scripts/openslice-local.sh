@@ -35,6 +35,59 @@ prepare_chart() {
 	cp "$tmf/config.theming.default.json" "$tmf/config.theming.json"
 	cp "$tmf/theming.default.scss" "$tmf/theming.scss"
 	cp "$portal/config.js.default" "$portal/config.js"
+	# The MySQL post-start hook reads its secrets with "$(< file)", which only bash understands. The
+	# chart's MySQL image (Oracle Linux) has bash as sh; the arm64 build (Ubuntu) has dash, where
+	# the values come out empty and the hook, and with it the container, fails. Run it with bash.
+	sed -i.bak '1s|^#!/usr/bin/env sh$|#!/usr/bin/env bash|' "$1/files/mysql-init/entrypoint.sh" && rm -f "$1/files/mysql-init/entrypoint.sh.bak"
+	# Let artemisExtraArgs (the image's EXTRA_ARGS: the broker's "artemis create" options) be set
+	# from values: add it to the Artemis container's env, creating the block if the chart has none.
+	# Idempotent.
+	local artemis="$1/templates/artemis.yaml"
+	if ! grep -q EXTRA_ARGS "$artemis"; then
+		awk '
+			/^          name: .*-artemis$/ { incont = 1 }
+			incont && !done && /^          env:$/ { print; item(); done = 1; next }
+			incont && !done && /^          resources:$/ { print "          env:"; item(); done = 1 }
+			{ print }
+			function item() {
+				print "            - name: EXTRA_ARGS"
+				print "              value: \"{{ .Values.artemisExtraArgs | default \"--http-host 0.0.0.0 --relax-jolokia\" }}\""
+			}' "$artemis" >"$artemis.tmp" && mv "$artemis.tmp" "$artemis"
+	fi
+	# The broker stops accepting messages when the node's disk is more than max-disk-usage percent
+	# full (90 by default), and OpenSlice then silently hangs: CRIDGE never registers, orders never
+	# move. The image generates broker.xml on first start and offers no option for the limit, so
+	# wrap its start: create the instance, set the limit from artemisMaxDiskUsage, then run.
+	# Idempotent.
+	if ! grep -q artemisMaxDiskUsage "$artemis"; then
+		awk '
+			{ print }
+			!done && /^        - image: .*artemis/ {
+				print "          command: [\"/bin/bash\", \"-c\"]"
+				print "          args:"
+				print "            - >-"
+				print "              /docker-run.sh version >/dev/null &&"
+				print "              sed -i \"s|<max-disk-usage>[0-9-]*</max-disk-usage>|<max-disk-usage>{{ .Values.artemisMaxDiskUsage | default 90 }}</max-disk-usage>|\" etc/broker.xml &&"
+				print "              exec /docker-run.sh run"
+				done = 1
+			}' "$artemis" >"$artemis.tmp" && mv "$artemis.tmp" "$artemis"
+	fi
+}
+
+# node_arch: the architecture of the cluster node, which decides the images below.
+node_arch() { kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null; }
+
+# arm64_values: on arm64 nodes, override what the chart cannot run there (see versions.env).
+arm64_values() {
+	[[ "$(node_arch)" == arm64 ]] || return 0
+	warn "arm64 node: using $MYSQL_ARM64_IMAGE:$MYSQL_ARM64_TAG instead of the chart's MySQL, and Artemis with the NIO journal"
+	cat <<-YAML
+		  mysql:
+		    repository: $MYSQL_ARM64_IMAGE
+		    tag: "$MYSQL_ARM64_TAG"
+		    pullPolicy: IfNotPresent
+		artemisExtraArgs: "--http-host 0.0.0.0 --relax-jolokia --nio"
+	YAML
 }
 
 # The chart's own passwords are public (Keycloak admin Pa55w0rd, MySQL letmein and 12345, broker
@@ -142,6 +195,9 @@ up() {
 				echo "    tag: \"$tag\""
 				echo "    pullPolicy: IfNotPresent"
 			done
+			arm64_values
+			# Never let a full developer disk stall the broker (see prepare_chart).
+			echo "artemisMaxDiskUsage: 100"
 			echo "cridge:"
 			echo "  kubeconfig:"
 			echo "    base64: $(base64 <"$kubeconfig" | tr -d '\n')"

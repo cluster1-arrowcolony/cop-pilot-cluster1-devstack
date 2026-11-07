@@ -400,5 +400,16 @@ publish it elsewhere with `OPENSLICE_URL` or `OPENSLICE_BIND`.
   provider to start them by hand. Make the CFSS a bundle.
 - **CRIDGE cannot reach the broker** (`ice`): check the tunnel pod
   (`kubectl -n openslice-bridge logs deploy/broker-tunnel`) and the broker credentials.
+- **On Apple Silicon, `openslice-mysql-0` stays in `ImagePullBackOff` or the Artemis pod crash-loops with
+  "Cannot initialize queue: Function not implemented"**: the chart's `mysql:5.7.43` has no arm64 image
+  and Artemis's AIO journal does not work under emulation. The devstack handles both on arm64 nodes
+  (an arm64 MySQL 5.7 build, `MYSQL_ARM64_IMAGE` in `versions.env`, and Artemis with `--nio`); an
+  OpenSlice installed before this existed needs `make openslice` to pick it up. Give the Docker VM
+  at least 12 GB for `OPENSLICE=local`.
+- **OpenSlice is up but nothing happens: CRIDGE logs `Timeout occurred after 20000 millis` on
+  `CATALOG.GET.RESOURCESPEC_BY_NAME_CATEGORY`, orders stay put, and the Artemis log says
+  `AMQ222212: Disk Full! Blocking message production`**: the broker stops accepting messages when
+  the disk is more than 90 % full. The devstack sets that limit to 100 % (`artemisMaxDiskUsage`
+  in the chart values); an OpenSlice installed before this existed needs `make openslice`.
 - **CRIDGE errors with `emulationMajor`**: the cluster's Kubernetes version is too new for
   CRIDGE's fabric8 client. Keep k3s at v1.31 or v1.32.
