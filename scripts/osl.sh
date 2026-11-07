@@ -97,3 +97,77 @@ osl_terminate() {
 		osl PATCH "/serviceInventory/v4/service/$svc" '{"state":"terminated"}' >/dev/null || return
 	done
 }
+
+# --- Catalogue-as-code helpers (catalog/): bundles with characteristics, LCM rules, day-2 changes ---
+
+# osl_cfss_chars <name> <rfss-id> <chars-json>: like osl_cfss, with serviceSpecCharacteristic
+# given as a JSON array of {name, value, valueType}; each becomes a configurable characteristic
+# with that default. Prints the new spec's id.
+osl_cfss_chars() {
+	jq -n --arg name "$1" --arg rfss "$2" --argjson chars "$3" '{
+		name: $name, version: "0.1.0", lifecycleStatus: "Active", isBundle: true,
+		"@type": "CustomerFacingServiceSpecification", type: "CustomerFacingServiceSpecification",
+		description: "Created by cop-pilot-cluster1-devstack",
+		serviceSpecRelationship: [{id: $rfss, relationshipType: "dependency", "@type": "ServiceSpecificationRef"}],
+		serviceSpecCharacteristic: [$chars[] | {
+			name: .name, configurable: true, valueType: (.valueType // "TEXT"),
+			serviceSpecCharacteristicValue: [{value: {value: (.value|tostring), alias: ""}, valueType: (.valueType // "TEXT"), isDefault: true}]
+		}]
+	}' | { osl POST "/serviceCatalogManagement/v4/serviceSpecification" "$(cat)"; } | jq -er '.id // empty'
+}
+
+# osl_rule <name> <phase> <spec-id> <code-file>: create an LCM rule (PRE_PROVISION, CREATION,
+# AFTER_ACTIVATION, SUPERVISION, AFTER_DEACTIVATION) whose exec() body is the file; prints its id.
+osl_rule() {
+	local name=$1 phase=$2 spec=$3 file=$4
+	jq -n --arg name "$name" --arg phase "$phase" --arg spec "$spec" --rawfile code "$file" '{
+		name: $name, description: ("Created by cop-pilot-cluster1-devstack: " + $name),
+		lcmrulephase: $phase, lifecycleStatus: "Active", version: "0.1.0", content: "", code: $code,
+		serviceSpecs: [{id: $spec, "@type": "ServiceSpecificationRef"}]
+	}' >"$STATE/rule.json"
+	osl POST "/lcmrulesmanagement/v1/lcmRuleSpecification" "@$STATE/rule.json" | jq -er '.id // empty'
+}
+
+# osl_service <id>: the service from the inventory.
+osl_service() { osl GET "/serviceInventory/v4/service/$1"; }
+
+# osl_service_char <id> <name>: one characteristic's value of a service, or empty.
+osl_service_char() {
+	osl_service "$1" | jq -r --arg n "$2" '[.serviceCharacteristic[]? | select(.name == $n)][0].value.value // empty'
+}
+
+# osl_patch_service_char <id> <name> <value>: change one characteristic of a running service,
+# as the portal's "modify service" does. OpenSlice keeps the others.
+osl_patch_service_char() {
+	jq -n --arg n "$2" --arg v "$3" '{serviceCharacteristic: [{name: $n, value: {value: $v, alias: ""}, valueType: "TEXT"}]}' |
+		{ osl PATCH "/serviceInventory/v4/service/$1" "$(cat)"; } >/dev/null
+}
+
+# osl_order_modify <service-id> <chars-json>: a service order with one "modify" item on a
+# running service, carrying the characteristics given as a JSON array of {name, value}.
+# The item repeats the service's specification and supporting services, as the portal does.
+osl_order_modify() {
+	local svc now later
+	svc="$(osl_service "$1")" || return
+	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	later="$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+1d +%Y-%m-%dT%H:%M:%SZ)"
+	# The inventory names the spec "serviceSpecification" (not the model's serviceSpecificationRef);
+	# without its id the API answers 400 ("There is no Service Specification with Id: null").
+	# The item itself is created ACKNOWLEDGED, as LCM rules' createServiceOrder does: OSOM's modify
+	# delegate (ProcessOrderItemActionModify) acts only on items in that state, and a PATCH of the
+	# order's state does not touch the items, so an INITIAL item completes without doing anything.
+	# With all items acknowledged the API acknowledges the order itself; osl_ack is then a no-op.
+	jq -n --argjson svc "$svc" --argjson chars "$2" --arg now "$now" --arg later "$later" '{
+		description: "devstack modify order", requestedStartDate: $now, requestedCompletionDate: $later,
+		orderItem: [{id: "1", action: "modify", state: "ACKNOWLEDGED",
+			service: {id: $svc.id, name: $svc.name, state: "active",
+				serviceSpecification: {id: $svc.serviceSpecification.id, name: $svc.serviceSpecification.name},
+				supportingService: [($svc.supportingService // [])[] | {id, name, "@referredType"}],
+				serviceCharacteristic: [$chars[] | {name: .name, value: {value: (.value|tostring), alias: ""}, valueType: "TEXT"}]}}]
+	}' | { osl POST "/serviceOrdering/v4/serviceOrder" "$(cat)"; } | jq -er '.id // empty'
+}
+
+# osl_service_notes <id> [n]: the last n notes of a service, oldest first (what OSOM and the rules did).
+osl_service_notes() {
+	osl_service "$1" | jq -r --argjson n "${2:-8}" '[.note[]? | "\(.date) \(.author): \(.text)"] | .[-$n:] | .[]'
+}

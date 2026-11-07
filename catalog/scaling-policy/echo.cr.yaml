@@ -1,0 +1,11 @@
+apiVersion: colony.colonyos.io/v1
+kind: Blueprint
+metadata:
+  name: echo
+spec:
+  kind: ExecutorDeployment
+  locationName: @LOCATION@
+  data:
+    executorType: @TYPE@
+    image: @IMAGE@
+    replicas: 1

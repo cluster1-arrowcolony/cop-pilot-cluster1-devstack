@@ -326,6 +326,20 @@ make retarget SPEC="ColonyOS Blueprint Reconciler RFSS"
 # -> "ColonyOS Blueprint Reconciler RFSS (cop1-yourname)", ready to bundle into a CFSS and order
 ```
 
+## Catalogue as code
+
+`catalog/` holds example catalogue entries: service specifications, LCM rules and
+characteristics as files, applied with the helpers in `scripts/osl.sh` (bundles with
+characteristics, LCM rules, inventory PATCHes, modify orders), to use as patterns for your own;
+`catalog/README.md` has the conventions and the entries.
+`scripts/test-scaling-policy.sh` orders the scaling-policy entry
+against the running OpenSlice and checks what day-2 changes do (about ten minutes):
+
+```sh
+source .devstack/identities.env
+OSL_URL=$OPENSLICE_URL OSL_USER=devstack OSL_PASSWORD=$OPENSLICE_PASSWORD scripts/test-scaling-policy.sh
+```
+
 ## Commands
 
 | Command | Does |
