@@ -112,8 +112,10 @@ osl_ack "$order"; ok "order $order acknowledged $(stamp)"
 retry 180 "the Blueprint CR in namespace $order" cr_synced
 retry 180 "one echo executor" executors_are 1
 retry 300 "order $order to complete" order_completed "$order"
-cfs_service="$(osl GET "/serviceInventory/v4/service?serviceOrder.id=$order" 2>/dev/null | jq -r '[.[] | select(.category=="CustomerFacingService")][0].id // empty')"
-[[ -n "$cfs_service" ]] || cfs_service="$(osl GET "/serviceOrdering/v4/serviceOrder/$order" | jq -r '.orderItem[0].service.id')"
+# The inventory ignores the serviceOrder.id filter and the order item's service is a separate
+# record, so find the bundle's service by its unique name.
+cfs_service="$(osl GET "/serviceInventory/v4/service" | jq -er --arg n "$CFSSNAME" '[.[] | select(.name==$n and .state!="terminated")][0].id')" ||
+	die "no active service named '$CFSSNAME' in the inventory"
 rfs_service="$(osl_service "$cfs_service" | jq -r '.supportingService[0].id')"
 if [[ "$(cr_replicas)" == 1 ]]; then
 	passed "creation: PRE_PROVISION rule set replicas=1, order COMPLETED after $((SECONDS - t0))s"

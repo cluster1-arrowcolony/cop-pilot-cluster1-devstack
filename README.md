@@ -128,9 +128,11 @@ Joining, step by step, with the guide's sections in brackets:
    enroll the host with their script, which installs the Ziti tunneler (needs Linux and sudo)
    (SIF).
 3. Create the account HypO logs in with, `oc-<your-username>` with administrator rights in the
-   realm `openslice` (ESO). The Keycloak admin password is `OPENSLICE_KEYCLOAK_ADMIN_PASSWORD` in
-   `.devstack/identities.env`. Check it with
-   `make peering-check OSL_USER=oc-<your-username> OSL_PASSWORD=<password>`.
+   realm `openslice` (ESO): `scripts/osl-user.sh oc-<your-username> USER,ADMIN` prints its
+   password (or set `OSL_USER_PASSWORD`). The same script gives a program its own account, for
+   example `scripts/osl-user.sh reporter USER` for one that only orders and PATCHes services.
+   The Keycloak admin password is `OPENSLICE_KEYCLOAK_ADMIN_PASSWORD` in `.devstack/identities.env`.
+   Check the account with `make peering-check OSL_USER=oc-<your-username> OSL_PASSWORD=<password>`.
 4. Ask the NETC team to run the pipelines that expose your OpenSlice in CloudZiti and peer it
    with HypO, giving them `OPENSLICE_URL` and that account (ESO).
 5. Name your catalog and services as the guide describes, and have the names approved (DO).
