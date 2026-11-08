@@ -171,3 +171,52 @@ osl_order_modify() {
 osl_service_notes() {
 	osl_service "$1" | jq -r --argjson n "${2:-8}" '[.note[]? | "\(.date) \(.author): \(.text)"] | .[-$n:] | .[]'
 }
+
+# --- Categories (TMF633): the catalogue structure a peer such as HypO reads ---
+
+# osl_category <name> [description]: create a root service category (lifecycle Active); prints its id.
+osl_category() {
+	jq -n --arg n "$1" --arg d "${2:-Created by cop-pilot-cluster1-devstack}" \
+		'{name: $n, description: $d, isRoot: true, lifecycleStatus: "Active", version: "1.0"}' |
+		{ osl POST "/serviceCatalogManagement/v4/serviceCategory" "$(cat)"; } | jq -er '.id // empty'
+}
+
+# osl_catalog_add_category <catalog-id> <category-id>: add a category to a catalogue, keeping its others.
+osl_catalog_add_category() {
+	local cats
+	cats="$(osl GET "/serviceCatalogManagement/v4/serviceCatalog/$1" | jq -c --arg c "$2" '[(.category // [])[] | {id}] + [{id: $c}] | unique_by(.id)')" || return
+	osl PATCH "/serviceCatalogManagement/v4/serviceCatalog/$1" "$(jq -n --argjson c "$cats" '{category: $c}')" >/dev/null
+}
+
+# osl_candidate_of_spec <spec-id>: the id of the service candidate OpenSlice created for a spec.
+osl_candidate_of_spec() {
+	osl GET "/serviceCatalogManagement/v4/serviceCandidate" |
+		jq -er --arg s "$1" '[.[] | select(.serviceSpecification.id == $s)][0].id // empty'
+}
+
+# osl_category_add_spec <category-id> <spec-id>: put a spec in a category (through its candidate;
+# a candidate can be in several categories).
+osl_category_add_spec() {
+	local cand
+	cand="$(osl_candidate_of_spec "$2")" || return
+	osl PATCH "/serviceCatalogManagement/v4/serviceCandidate/$cand" "$(jq -n --arg c "$1" '{category: [{id: $c}]}')" >/dev/null
+}
+
+# osl_spec_lifecycle <spec-id> <status>: set a spec's lifecycleStatus ("In study", "In design",
+# "In test", "Active", "Launched", "Retired", "Obsolete", "Rejected").
+osl_spec_lifecycle() {
+	osl PATCH "/serviceCatalogManagement/v4/serviceSpecification/$1" "$(jq -n --arg s "$2" '{lifecycleStatus: $s}')" >/dev/null
+}
+
+# osl_category_delete <category-id>: delete a category. OpenSlice refuses (HTTP 500) while the
+# category is in a catalogue or still holds candidates, so it is detached and emptied first; the
+# specs themselves stay.
+osl_category_delete() {
+	local cid=$1 cat keep
+	for cat in $(osl GET "/serviceCatalogManagement/v4/serviceCatalog" | jq -r --arg c "$cid" '.[] | select(any(.category[]?; .id == $c)) | .id'); do
+		keep="$(osl GET "/serviceCatalogManagement/v4/serviceCatalog/$cat" | jq -c --arg c "$cid" '[.category[]? | select(.id != $c) | {id}]')" || return
+		osl PATCH "/serviceCatalogManagement/v4/serviceCatalog/$cat" "$(jq -n --argjson c "$keep" '{category: $c}')" >/dev/null || return
+	done
+	osl PATCH "/serviceCatalogManagement/v4/serviceCategory/$cid" '{"serviceCandidate": []}' >/dev/null || return
+	osl DELETE "/serviceCatalogManagement/v4/serviceCategory/$cid" >/dev/null
+}

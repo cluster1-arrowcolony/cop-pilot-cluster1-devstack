@@ -23,6 +23,19 @@ patterns for your own entries. One directory per entry.
   Measured on the devstack: a second executor 45–60 s after the demand appears, a third after
   about 160 s, back to one 40–80 s after the demand is gone.
 
+Categories are part of the catalogue too, but no category entries are kept here yet;
+`scripts/osl.sh` has the primitives to apply them: `osl_category`, `osl_catalog_add_category`,
+`osl_category_add_spec` (through the spec's candidate; a spec can be in several categories),
+`osl_spec_lifecycle`, and `osl_category_delete` (OpenSlice refuses to delete a category that is
+still in a catalogue or still holds candidates, and a spec whose candidate is still in a category).
+Categories organise the catalogue for people using this OpenSlice's portal; HypO does not use
+them (it files peered specifications in categories of its own). HypO's peering reads the whole
+specification list, of every type and lifecycle status, and then fetches each specification it
+keeps by id; the catalogue and category URLs given at peering are stored but not used, and the
+filtering by type and name is done by the peering pipeline. The list carries name, version, type
+and the bundle flag only, so lifecycle status and characteristics reach the peer from the fetch
+by id. `make peering-check` reads both URLs.
+
 Conventions:
 
 - `*.cr.yaml`: the custom resource an RFS deploys (`_CR_SPEC`), with `@TOKEN@` placeholders that
