@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # Run the ColonyOS docker-reconciler next to the cluster. It and the executors it spawns
 # share the k3d Docker network, so they all reach ColonyOS at the server node's NodePort.
+# LOCATION=<name> runs one more reconciler for a second location (a stand-in for a cloud or
+# another site), so that Blueprints with that locationName get their executors too:
+#   make reconciler LOCATION=cloud
+# "down" removes the reconcilers of every location.
 source "$(dirname "$0")/lib.sh"
 need docker
 
 NAME="$RECONCILER_CONTAINER"
+if [[ -n "${LOCATION:-}" && "$LOCATION" != "$LOCATION_NAME" ]]; then
+	LOCATION_NAME="$LOCATION"
+	NAME="$RECONCILER_CONTAINER-$LOCATION"
+fi
 EXECUTOR_NAME="docker-reconciler-$LOCATION_NAME"
 
 # running: the container runs and has not been restarted since it was created.
@@ -12,7 +20,7 @@ running() { [[ "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$NAM
 
 up() {
 	load_identities
-	local envfile="$STATE/reconciler.env"
+	local envfile="$STATE/reconciler${LOCATION:+-$LOCATION}.env"
 	(
 		umask 077
 		cat >"$envfile" <<-EOF2
@@ -53,7 +61,10 @@ up() {
 }
 
 down() {
-	docker rm -f "$NAME" >/dev/null 2>&1 || true
+	local c
+	for c in $(docker ps -a --format '{{.Names}}' | grep -E "^${RECONCILER_CONTAINER}(-|$)"); do
+		docker rm -f "$c" >/dev/null 2>&1 || true
+	done
 }
 
 "${1:-up}"

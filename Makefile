@@ -28,8 +28,8 @@ colonies: ## Redeploy only ColonyOS
 kolony: ## Rebuild and redeploy only Kolony (picks up changes in KOLONY_SRC)
 	@$(SCRIPTS)/kolony.sh
 
-reconciler: ## Restart only the docker-reconciler
-	@$(SCRIPTS)/reconciler.sh up
+reconciler: ## Restart the docker-reconciler; LOCATION=<name> adds one for a second location
+	@LOCATION=$(LOCATION) $(SCRIPTS)/reconciler.sh up
 
 openslice: ## Bring up or connect OpenSlice according to OPENSLICE
 	@$(SCRIPTS)/openslice.sh up

@@ -352,7 +352,7 @@ scripts/test-scale-on-queue.sh
 | `make test` | end-to-end tests; adds the OpenSlice order test when `OPENSLICE` is set |
 | `make status` | what runs where, and the registered executors |
 | `make kolony` | rebuild and redeploy Kolony after changing its source |
-| `make colonies`, `make reconciler`, `make openslice` | redeploy one part |
+| `make colonies`, `make reconciler`, `make openslice` | redeploy one part; `make reconciler LOCATION=cloud` adds a reconciler for a second location |
 | `make retarget SPEC=...` | clone an RFSS for this cluster |
 | `make ziti-enroll JWT=...` | enroll an OpenZiti identity for `OSL_ICE_TRANSPORT=ziti` |
 | `make peering-check` | check that a peer can log in and read the catalog at `OPENSLICE_URL` |
@@ -410,7 +410,9 @@ publish it elsewhere with `OPENSLICE_URL` or `OPENSLICE_BIND`.
 - **Blueprint never syncs**: `kubectl -n kolony logs deploy/kolony-controller-manager`. Check that
   a BlueprintDefinition for its `spec.kind` is registered (`kubectl get blueprintdefinitions -A`).
 - **No executor appears**: `docker logs devstack-<cluster>-reconciler`. The Blueprint's
-  `locationName` must equal `LOCATION_NAME` (default `devstack`).
+  `locationName` must equal `LOCATION_NAME` (default `devstack`), or a location you started a
+  second reconciler for with `make reconciler LOCATION=<name>` (container
+  `devstack-<cluster>-reconciler-<name>`), which stands in for a cloud or another site.
 - **OpenSlice order stays INITIAL**: orders placed through the API must be acknowledged
   (`PATCH serviceOrder {"state":"ACKNOWLEDGED"}`). The `OSL_AUTOACK_ORDER` role only applies to
   portal sessions.
