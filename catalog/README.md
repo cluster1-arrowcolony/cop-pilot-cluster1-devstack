@@ -57,6 +57,17 @@ Conventions:
 
 - `*.cr.yaml`: the custom resource an RFS deploys (`_CR_SPEC`), with `@TOKEN@` placeholders that
   the applying script fills (cluster, location, image).
+- Status mapping: a part's `_CR_CHECK_FIELD` names the CR status field that decides the
+  service's state, and `_CR_CHECKVAL_AVAILABLE` the value that makes it available (CRIDGE
+  compares the strings exactly; any other value is unknown). For an ExecutorDeployment use
+  `status.currentData.runningInstances` with the replicas it should run, not `status.synced`:
+  the Blueprint is synced as soon as ColonyOS has accepted it, also for a location whose
+  reconciler is down, and the service would be active with nothing running. With the running
+  count the service becomes active, and the order completes, when the executors run; a service
+  that is active stays active whatever the count does later. `cr-spec-from-replicas.rule.java`
+  keeps the check value equal to the replicas it writes. Measured on the devstack: with the
+  reconciler of the Blueprint's location stopped, the order stays INPROGRESS and the services
+  reserved; the part is active 61 s after the reconciler returns.
 - `*.rule.java`: the body of an LCM rule's `exec()`; OpenSlice wraps it in a class that extends
   `LcmBaseExecutor`, so only its helper methods and `java.lang` are available unqualified.
 - Specs are created through `scripts/osl.sh` helpers, never by hand in a portal, so that every

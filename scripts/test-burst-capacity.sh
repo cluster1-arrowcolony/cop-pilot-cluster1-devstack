@@ -162,12 +162,12 @@ rep_token="$(OSL_USER=$rep_user OSL_PASSWORD=$rep_password osl_login && echo "$O
 
 info "burst capacity $(stamp): main '$CFSSNAME' at $LOCATION_NAME, burst '$BCFSSNAME' at $BURST_LOCATION; reporter $rep_user"
 # the burst bundle first: its specification id is a policy characteristic of the main bundle
-brfss="$(osl_cr_rfss "$BRFSNAME" "$RSPEC" "$BCR" status.synced true)"
+brfss="$(osl_cr_rfss "$BRFSNAME" "$RSPEC" "$BCR" status.currentData.runningInstances "$BURST_REPLICAS")"
 bcfss="$(osl_cfss_chars "$BCFSSNAME" "$brfss" "$(jq -n --arg r "$BURST_REPLICAS" \
 	'[{name:"replicas",value:$r},{name:"maxReplicas",value:$r},{name:"queueWaiting",value:"0"},{name:"released",value:""}]')")"
 rules+=("$(osl_rule "$TAG burst cr-spec pre-provision" PRE_PROVISION "$bcfss" "$STATE/burst-bcrspec.java")")
 rules+=("$(osl_rule "$TAG burst-release" SUPERVISION "$bcfss" "$STATE/burst-release.java")")
-rfss="$(osl_cr_rfss "$RFSNAME" "$RSPEC" "$CR" status.synced true)"
+rfss="$(osl_cr_rfss "$RFSNAME" "$RSPEC" "$CR" status.currentData.runningInstances 1)"
 chars="$(jq -n --arg m "$MAX_REPLICAS" --arg up "$SCALE_UP_QUEUE" --arg b "$bcfss" --arg bn "$BCFSSNAME" \
 	'[{name:"replicas",value:"1"},{name:"maxReplicas",value:$m},{name:"queueWaiting",value:"0"},{name:"scaleUpQueue",value:$up},{name:"burstSpec",value:$b},{name:"burstName",value:$bn},{name:"burstOrder",value:""}]')"
 cfss="$(osl_cfss_chars "$CFSSNAME" "$rfss" "$chars")"

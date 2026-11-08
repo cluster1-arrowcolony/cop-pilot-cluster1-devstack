@@ -118,7 +118,7 @@ fi
 rep_token="$(OSL_USER=$rep_user OSL_PASSWORD=$rep_password osl_login && echo "$OSL_TOKEN")"
 
 info "scale on queue $(stamp): RFS '$RFSNAME', bundle '$CFSSNAME' on $RSPEC; reporter $rep_user"
-rfss="$(osl_cr_rfss "$RFSNAME" "$RSPEC" "$CR" status.synced true)"
+rfss="$(osl_cr_rfss "$RFSNAME" "$RSPEC" "$CR" status.currentData.runningInstances 1)"
 cfss="$(osl_cfss_chars "$CFSSNAME" "$rfss" "$(jq -n --arg up "$SCALE_UP_QUEUE" --arg max "$MAX_REPLICAS" \
 	'[{name: "replicas", value: "1"}, {name: "maxReplicas", value: $max}, {name: "queueWaiting", value: "0"}, {name: "scaleUpQueue", value: $up}]')")"
 rules+=("$(osl_rule "$TAG cr-spec pre-provision" PRE_PROVISION "$cfss" "$STATE/scale-on-queue-crspec.java")")

@@ -72,7 +72,7 @@ cleanup() {
 trap cleanup EXIT
 
 info "creating service specs for $RSPEC"
-rfss="$(osl_cr_rfss "$TAG echo RFSS" "$RSPEC" "$CR" status.synced true)"
+rfss="$(osl_cr_rfss "$TAG echo RFSS" "$RSPEC" "$CR" status.currentData.runningInstances 1)"
 cfss="$(osl_cfss "$TAG echo" "$rfss")"
 
 order="$(osl_order "$cfss" "$TAG echo")"

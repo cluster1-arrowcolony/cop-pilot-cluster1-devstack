@@ -97,7 +97,7 @@ cleanup() {
 trap cleanup EXIT
 
 info "scaling policy $(stamp): RFS '$RFSNAME', bundle '$CFSSNAME' on $RSPEC"
-rfss="$(osl_cr_rfss "$RFSNAME" "$RSPEC" "$CR" status.synced true)"
+rfss="$(osl_cr_rfss "$RFSNAME" "$RSPEC" "$CR" status.currentData.runningInstances 1)"
 cfss="$(osl_cfss_chars "$CFSSNAME" "$rfss" '[{"name":"replicas","value":"1"},{"name":"maxReplicas","value":"3"}]')"
 rules+=("$(osl_rule "$TAG cr-spec pre-provision" PRE_PROVISION "$cfss" "$STATE/scaling-policy-rule.java")")
 rules+=("$(osl_rule "$TAG cr-spec supervision" SUPERVISION "$cfss" "$STATE/scaling-policy-rule.java")")
