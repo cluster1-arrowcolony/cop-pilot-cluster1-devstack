@@ -23,6 +23,21 @@ patterns for your own entries. One directory per entry.
   Measured on the devstack: a second executor 45–60 s after the demand appears, a third after
   about 160 s, back to one 40–80 s after the demand is gone.
 
+  Tier 2, through the platform: `burst-on-cap.rule.java` (SUPERVISION on the same bundle) places a
+  service order for a second bundle when the cap is reached, the part reports the cap running and
+  the queue still reaches `scaleUpQueue`; the second bundle's specification id is the
+  characteristic `burstSpec`, its service name `burstName`, and the order id is kept in
+  `burstOrder` so that one peak orders one burst. `burst-release.rule.java` (SUPERVISION on the
+  burst bundle) orders the termination of that bundle and its part when the queue is empty: a
+  `delete` order item whose `supportingService` lists them, which is what OSOM terminates. Rules
+  place orders with `createServiceOrder`, whose items are created acknowledged, so no one has to
+  approve them; the orders name the rule and the order they descend from. The burst bundle's
+  Blueprint names another location, served by a second reconciler (`make reconciler
+  LOCATION=cloud`). Measured on the devstack: burst executors running about two minutes after
+  tier 1 reached its cap, burst gone about one minute after the queue emptied. A Blueprint whose
+  location no reconciler serves is accepted by every layer and never runs; check the location
+  against `colonies executor ls` before ordering.
+
 Categories are part of the catalogue too, but no category entries are kept here yet;
 `scripts/osl.sh` has the primitives to apply them: `osl_category`, `osl_catalog_add_category`,
 `osl_category_add_spec` (through the spec's candidate; a spec can be in several categories),
