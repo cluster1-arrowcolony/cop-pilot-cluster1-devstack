@@ -13,6 +13,13 @@ patterns for your own entries. One directory per entry.
   `<part name>::_CR_SPEC`, but only when no SUPERVISION rule owns `_CR_SPEC`, because the rule
   rewrites it before the patch is sent. So each characteristic has one writer: the rule for
   policy, the inventory PATCH for the people and programs that change the policy.
+  `scale-on-queue.rule.java` (SUPERVISION) closes the loop: when `queueWaiting`, written by a
+  reporter with a USER account from the colony's waiting processes, reaches `scaleUpQueue`, it
+  raises `replicas` by one step up to `maxReplicas`, and lowers it when the queue is empty; a
+  step is taken only once the part's `status.currentData.runningInstances` has caught up with
+  `replicas`, which paces the loop to about one step per minute. Measured on the devstack: a
+  second executor about 60 s after the demand appears, a third after about 160 s, back to one
+  about 100 s after the demand is gone.
 
 Conventions:
 
