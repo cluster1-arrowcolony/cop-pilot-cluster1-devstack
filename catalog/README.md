@@ -17,9 +17,11 @@ patterns for your own entries. One directory per entry.
   reporter with a USER account from the colony's waiting processes, reaches `scaleUpQueue`, it
   raises `replicas` by one step up to `maxReplicas`, and lowers it when the queue is empty; a
   step is taken only once the part's `status.currentData.runningInstances` has caught up with
-  `replicas`, which paces the loop to about one step per minute. Measured on the devstack: a
-  second executor about 60 s after the demand appears, a third after about 160 s, back to one
-  about 100 s after the demand is gone.
+  `replicas`, which paces the loop to about one step per minute. `scripts/test-scale-on-queue.sh`
+  orders the bundle, runs such a reporter, queues processes that no executor serves and checks
+  the loop up to the cap and back down, and that the rule never steps ahead of the executors.
+  Measured on the devstack: a second executor 45–60 s after the demand appears, a third after
+  about 160 s, back to one 40–80 s after the demand is gone.
 
 Conventions:
 

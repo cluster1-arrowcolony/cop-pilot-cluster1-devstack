@@ -335,11 +335,13 @@ characteristics as files, applied with the helpers in `scripts/osl.sh` (bundles 
 characteristics, LCM rules, inventory PATCHes, modify orders), to use as patterns for your own;
 `catalog/README.md` has the conventions and the entries.
 `scripts/test-scaling-policy.sh` orders the scaling-policy entry
-against the running OpenSlice and checks what day-2 changes do (about ten minutes):
+against the running OpenSlice and checks what day-2 changes do (about ten minutes), and
+`scripts/test-scale-on-queue.sh` closes its scaling loop with queued processes as the demand
+(about nine minutes):
 
 ```sh
-source .devstack/identities.env
-OSL_URL=$OPENSLICE_URL OSL_USER=devstack OSL_PASSWORD=$OPENSLICE_PASSWORD scripts/test-scaling-policy.sh
+scripts/test-scaling-policy.sh     # OPENSLICE=local; for another OpenSlice set OSL_URL, OSL_USER, OSL_PASSWORD
+scripts/test-scale-on-queue.sh
 ```
 
 ## Commands

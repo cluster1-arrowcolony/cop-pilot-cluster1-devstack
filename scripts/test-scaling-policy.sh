@@ -11,12 +11,15 @@
 #   D  the same order scales the executors once the SUPERVISION rule is deleted
 # Any other outcome is a failure (a later OpenSlice release may change B and C: then update
 # catalog/README.md as well). Takes about ten minutes.
-# Uses OSL_URL/OSL_USER/OSL_PASSWORD (for OPENSLICE=local: OSL_URL=$OPENSLICE_URL, OSL_USER=devstack,
-# OSL_PASSWORD=$OPENSLICE_PASSWORD from .devstack/identities.env). KEEP=1 leaves specs, rules and services for inspection.
+# With OPENSLICE=local it logs in as the devstack user; for another OpenSlice set OSL_URL, OSL_USER
+# and OSL_PASSWORD. KEEP=1 leaves specs, rules and services for inspection.
 source "$(dirname "$0")/lib.sh"
 source "$ROOT/scripts/osl.sh"
 need kubectl colonies jq curl
 
+if [[ "$OPENSLICE" == local ]]; then
+	load_identities; : "${OSL_URL:=$OPENSLICE_URL}" "${OSL_USER:=devstack}" "${OSL_PASSWORD:=$OPENSLICE_PASSWORD}"
+fi
 : "${OSL_URL:?}" "${OSL_USER:?}" "${OSL_PASSWORD:?}"
 colonies_cli_env
 osl_login
