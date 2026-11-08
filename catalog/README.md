@@ -33,8 +33,10 @@ patterns for your own entries. One directory per entry.
   place orders with `createServiceOrder`, whose items are created acknowledged, so no one has to
   approve them; the orders name the rule and the order they descend from. The burst bundle's
   Blueprint names another location, served by a second reconciler (`make reconciler
-  LOCATION=cloud`). Measured on the devstack: burst executors running about two minutes after
-  tier 1 reached its cap, burst gone about one minute after the queue emptied. A Blueprint whose
+  LOCATION=cloud`). `scripts/test-burst-capacity.sh` orders both bundles' loop and checks the
+  burst order, the executors at the second location, the release and the way back. Measured on
+  the devstack: burst executors running about two minutes after tier 1 reached its cap, burst
+  gone about one minute after the queue emptied. A Blueprint whose
   location no reconciler serves is accepted by every layer and never runs; check the location
   against `colonies executor ls` before ordering.
 

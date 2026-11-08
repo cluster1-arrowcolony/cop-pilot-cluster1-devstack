@@ -337,11 +337,14 @@ characteristics, LCM rules, inventory PATCHes, modify orders), to use as pattern
 `scripts/test-scaling-policy.sh` orders the scaling-policy entry
 against the running OpenSlice and checks what day-2 changes do (about ten minutes), and
 `scripts/test-scale-on-queue.sh` closes its scaling loop with queued processes as the demand
-(about nine minutes):
+(about nine minutes), and `scripts/test-burst-capacity.sh` takes the loop past the cap with a
+burst bundle ordered by a rule at a second location (about twelve minutes; needs
+`make reconciler LOCATION=cloud` first):
 
 ```sh
 scripts/test-scaling-policy.sh     # OPENSLICE=local; for another OpenSlice set OSL_URL, OSL_USER, OSL_PASSWORD
 scripts/test-scale-on-queue.sh
+make reconciler LOCATION=cloud && scripts/test-burst-capacity.sh
 ```
 
 ## Commands
