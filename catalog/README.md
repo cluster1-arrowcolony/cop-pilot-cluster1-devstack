@@ -67,7 +67,12 @@ Conventions:
   that is active stays active whatever the count does later. `cr-spec-from-replicas.rule.java`
   keeps the check value equal to the replicas it writes. Measured on the devstack: with the
   reconciler of the Blueprint's location stopped, the order stays INPROGRESS and the services
-  reserved; the part is active 61 s after the reconciler returns.
+  reserved; the part is active 61 s after the reconciler returns. No `_CR_CHECKVAL_ALARM` is
+  set: when executors fail to start, the reconciler stops reporting and the running count freezes
+  at its last value instead of dropping, so the field cannot carry an alarm until the Blueprint
+  status has a failure field (`osl_cr_rfss` accepts `_CR_CHECKVAL_ALARM=<value>` as an extra
+  argument for that day). Meanwhile a frozen `status.currentData.lastUpdated` next to a moving
+  `status.lastSyncTime` is the sign of a part in trouble.
 - `*.rule.java`: the body of an LCM rule's `exec()`; OpenSlice wraps it in a class that extends
   `LcmBaseExecutor`, so only its helper methods and `java.lang` are available unqualified.
 - Specs are created through `scripts/osl.sh` helpers, never by hand in a portal, so that every

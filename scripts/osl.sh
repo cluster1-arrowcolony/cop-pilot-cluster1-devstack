@@ -27,19 +27,22 @@ osl_resource_spec() {
 		die "no resource specification named $1 (is CRIDGE connected to this cluster?)"
 }
 
-# osl_cr_rfss <name> <crd-resource-spec-name> <cr-yaml> <check-field> <available-value>
+# osl_cr_rfss <name> <crd-resource-spec-name> <cr-yaml> <check-field> <available-value> [NAME=VALUE...]
 # Create a resource-facing service spec that deploys <cr-yaml> through CRIDGE, the way the
 # OpenSlice UI does from a CRD resource spec, and print its id.
 # Callers run it inside $(...), where bash 3.2 ignores set -e, so each step checks its own status.
 osl_cr_rfss() {
-	local name=$1 rspec_name=$2 cr=$3 field=$4 avail=$5 rspec
+	local name=$1 rspec_name=$2 cr=$3 field=$4 avail=$5 rspec extra
+	shift 5
+	# Further NAME=VALUE arguments override other characteristics, e.g. _CR_CHECKVAL_ALARM=0.
+	extra="$(printf '%s\n' "$@" | jq -R 'select(length > 0) | capture("(?<k>[^=]+)=(?<v>.*)") | {(.k): .v}' | jq -s 'add // {}')"
 	rspec="$(osl_resource_spec "$rspec_name")" || return
 	rspec="$(osl GET "/resourceCatalogManagement/v4/resourceSpecification/$(jq -r .id <<<"$rspec")")" || return
 	# The resource spec goes in on stdin: a CRD's can be larger than an argument may be.
-	jq --arg name "$name" --arg cr "$cr" --arg field "$field" --arg avail "$avail" '
+	jq --arg name "$name" --arg cr "$cr" --arg field "$field" --arg avail "$avail" --argjson extra "$extra" '
 		. as $rs |
 		def val($v): [{value: {value: $v, alias: ""}, valueType: "TEXT", isDefault: true}];
-		def override: {_CR_SPEC: $cr, _CR_CHECK_FIELD: $field, _CR_CHECKVAL_AVAILABLE: $avail};
+		def override: {_CR_SPEC: $cr, _CR_CHECK_FIELD: $field, _CR_CHECKVAL_AVAILABLE: $avail} + $extra;
 		{
 			name: $name, version: "0.1.0", lifecycleStatus: "Active",
 			"@type": "ResourceFacingServiceSpecification", type: "ResourceFacingServiceSpecification",
