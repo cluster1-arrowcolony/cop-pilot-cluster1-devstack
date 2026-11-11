@@ -50,11 +50,14 @@ argocd_project() {
 # Capabilities that give a container the host, or much of it, whatever else it is denied.
 HOST_CAPABILITIES="ALL SYS_ADMIN SYS_MODULE SYS_RAWIO SYS_PTRACE SYS_BOOT DAC_READ_SEARCH BPF PERFMON"
 
-# argocd_access [capabilities] [devices]: apply manifests/argocd-access.yaml, with these
-# exceptions to the Pod policy (space-separated), ARGOCD_POD_CAPABILITIES and ARGOCD_POD_DEVICES
+# argocd_access [capabilities] [devices] [host access]: apply manifests/argocd-access.yaml, with
+# these exceptions to the Pod policy (space-separated capabilities and devices; host access off,
+# network or privileged), ARGOCD_POD_CAPABILITIES, ARGOCD_POD_DEVICES and ARGOCD_POD_HOST_ACCESS
 # unless given (make test passes its own for the test).
 argocd_access() {
-	local caps="${1-$ARGOCD_POD_CAPABILITIES}" devices="${2-$ARGOCD_POD_DEVICES}" c d
+	local caps="${1-$ARGOCD_POD_CAPABILITIES}" devices="${2-$ARGOCD_POD_DEVICES}" host="${3-$ARGOCD_POD_HOST_ACCESS}" c d
+	[[ "$host" =~ ^(off|network|privileged)$ ]] ||
+		die "ARGOCD_POD_HOST_ACCESS is off, network or privileged (got '$host')"
 	for c in $caps; do
 		[[ "$c" =~ ^[A-Z_]+$ && "$c" != CAP_* ]] ||
 			die "ARGOCD_POD_CAPABILITIES lists capabilities as Kubernetes names them, e.g. NET_ADMIN (got '$c')"
@@ -68,12 +71,16 @@ argocd_access() {
 	# shellcheck disable=SC2086 # space-separated lists
 	kubectl create --dry-run=client -o json -f "$ROOT/manifests/argocd-access.yaml" |
 		jq -s --argjson caps "$(jq -nc '$ARGS.positional' --args $caps)" \
-			--argjson devices "$(jq -nc '$ARGS.positional' --args $devices)" '{
+			--argjson devices "$(jq -nc '$ARGS.positional' --args $devices)" \
+			--arg hostnet "$([[ "$host" != off ]] && echo true || echo false)" \
+			--arg priv "$([[ "$host" == privileged ]] && echo true || echo false)" '{
 			apiVersion: "v1", kind: "List",
 			items: map(if .metadata.name == "devstack-order-pods" and .kind == "ValidatingAdmissionPolicy"
 				then .spec.variables |= map(
 					if .name == "capabilities" then .expression = ($caps | tojson)
 					elif .name == "devices" then .expression = ($devices | tojson)
+					elif .name == "hostNetwork" then .expression = $hostnet
+					elif .name == "privileged" then .expression = $priv
 					else . end)
 				else . end)}' |
 		quiet kubectl apply -f -
@@ -112,6 +119,10 @@ argocd_up() {
 	if [[ -n "${ARGOCD_POD_CAPABILITIES// /}${ARGOCD_POD_DEVICES// /}" ]]; then
 		info "Pods in order namespaces may also use ${ARGOCD_POD_CAPABILITIES:-no other capabilities} and ${ARGOCD_POD_DEVICES:-no host devices}"
 	fi
+	case "$ARGOCD_POD_HOST_ACCESS" in
+	network) warn "ARGOCD_POD_HOST_ACCESS=network: Pods in order namespaces may use the host's network and ports; for a cluster that is yours alone" ;;
+	privileged) warn "ARGOCD_POD_HOST_ACCESS=privileged: Pods in order namespaces may run privileged and own the node; for a cluster that is yours alone" ;;
+	esac
 }
 
 # argocd_down: remove Argo CD and its policies, unless Applications are left, which need Argo CD

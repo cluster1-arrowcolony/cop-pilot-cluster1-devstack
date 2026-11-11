@@ -313,9 +313,24 @@ ARGOCD_POD_DEVICES="/dev/net/tun"     # host character devices, space-separated
 `NET_ADMIN` lets a Pod configure its own network namespace (interfaces, routes, iptables), and
 `/dev/net/tun` lets it create TUN interfaces there. A Pod mounts a device as a `hostPath` volume
 of `type: CharDevice`; any other host path stays refused. Capabilities that reach the host, such
-as `SYS_ADMIN` or `ALL`, cannot be listed, and privileged containers and the host network stay
-refused, so a chart that sets `privileged: true` has to ask for what it needs instead, such as
-`NET_ADMIN` and a device. Run `make openslice` after changing either setting.
+as `SYS_ADMIN` or `ALL`, cannot be listed, so a chart that sets `privileged: true` has to ask
+for what it needs instead, such as `NET_ADMIN` and a device. Run `make openslice` after changing
+either setting.
+
+On a cluster that is yours alone, a chart may also need the host itself: a mobile core or a
+radio stack that uses the host's network and ports, or runs privileged for its hardware. One
+setting opens that, for every Pod in order namespaces:
+
+```bash
+ARGOCD_POD_HOST_ACCESS=network      # host network and host ports; default off
+ARGOCD_POD_HOST_ACCESS=privileged   # also privileged containers and the host's PID and IPC namespaces
+```
+
+`make openslice` then warns at every start, because such a Pod owns the node and the
+docker-reconciler's host with it. Keep it `off` on any cluster you share with others; use it on
+your own development stack or on a project cluster you got from an order. Pods outside order
+namespaces are not checked by this policy at all, so infrastructure you install yourself is
+unaffected either way.
 
 ### Using catalog specs written for another cluster
 

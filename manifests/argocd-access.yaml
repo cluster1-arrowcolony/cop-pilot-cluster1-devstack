@@ -54,7 +54,10 @@ spec:
 # Two exceptions, which argocd.sh writes into the variables "capabilities" and "devices" from
 # ARGOCD_POD_CAPABILITIES and ARGOCD_POD_DEVICES: capabilities Pods may add beyond baseline's,
 # such as NET_ADMIN, and host character devices they may mount, such as /dev/net/tun, as hostPath
-# volumes of type CharDevice. As written here, there are none.
+# volumes of type CharDevice. And two switches from ARGOCD_POD_HOST_ACCESS, for a cluster that is
+# its owner's alone: "hostNetwork" (level network) lets Pods use the host's network and host
+# ports, "privileged" (level privileged) also lets them run privileged and use the host's PID and
+# IPC namespaces. As written here, there are no exceptions and both switches are off.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -79,6 +82,10 @@ spec:
       expression: "[]"
     - name: devices
       expression: "[]"
+    - name: hostNetwork
+      expression: "false"
+    - name: privileged
+      expression: "false"
     - name: psc
       expression: "has(object.spec.securityContext) ? dyn(object.spec.securityContext) : dyn({})"
     # Containers, init containers and ephemeral containers, with an empty securityContext where
@@ -93,23 +100,23 @@ spec:
         variables.containers.map(c, has(c.securityContext) ? c.securityContext : dyn({}))
   validations:
     - expression: >-
-        !variables.order || !(
-          (has(variables.spec.hostNetwork) && variables.spec.hostNetwork) ||
+        !variables.order || variables.privileged || !(
+          (has(variables.spec.hostNetwork) && variables.spec.hostNetwork && !variables.hostNetwork) ||
           (has(variables.spec.hostPID) && variables.spec.hostPID) ||
           (has(variables.spec.hostIPC) && variables.spec.hostIPC))
-      message: Pods in order namespaces may not use the host's network, PID or IPC namespace
+      message: Pods in order namespaces may not use the host's network, PID or IPC namespace (ARGOCD_POD_HOST_ACCESS)
     - expression: >-
-        !variables.order || variables.scs.all(s, !has(s.privileged) || !s.privileged)
-      message: Pods in order namespaces may not run privileged containers
+        !variables.order || variables.privileged || variables.scs.all(s, !has(s.privileged) || !s.privileged)
+      message: Pods in order namespaces may not run privileged containers (ARGOCD_POD_HOST_ACCESS)
     - expression: >-
         !variables.order || !has(variables.spec.volumes) ||
         variables.spec.volumes.all(v, !has(v.hostPath) || (
           has(v.hostPath.type) && v.hostPath.type == 'CharDevice' && v.hostPath.path in variables.devices))
       message: Pods in order namespaces may not mount host paths, except the devices in ARGOCD_POD_DEVICES
     - expression: >-
-        !variables.order || variables.containers.all(c, !has(c.ports) ||
+        !variables.order || variables.hostNetwork || variables.privileged || variables.containers.all(c, !has(c.ports) ||
           c.ports.all(p, !has(p.hostPort) || p.hostPort == 0))
-      message: Pods in order namespaces may not use host ports
+      message: Pods in order namespaces may not use host ports (ARGOCD_POD_HOST_ACCESS)
     - expression: >-
         !variables.order || variables.scs.all(s,
           !has(s.capabilities) || !has(s.capabilities.add) ||

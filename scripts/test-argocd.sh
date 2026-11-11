@@ -73,6 +73,24 @@ report() {
 	fi
 }
 
+# access <args of argocd_access...> -- <want> <spec-json>: apply the Pod policy and wait until
+# the API server evaluates the new version, which takes up to about a second: a dry run of the
+# Pod <spec-json> in CHECK gets the verdict <want>. The checks that follow report any discrepancy.
+access() {
+	local args=() want spec
+	while [[ "$1" != -- ]]; do args+=("$1"); shift; done
+	want=$2 spec=$3
+	argocd_access "${args[@]}"
+	for _ in $(seq 20); do
+		if pod "$CHECK" "$spec" | kubectl create --dry-run=server -f - >/dev/null 2>&1; then
+			[[ "$want" == allow ]] && return 0
+		else
+			[[ "$want" == deny ]] && return 0
+		fi
+		sleep 0.5
+	done
+}
+
 # dry_run <want> <what> <policy> <kubectl args...>: a server-side dry run of the JSON object on
 # stdin; only a refusal by RBAC or the ValidatingAdmissionPolicy <policy> counts as refused.
 dry_run() {
@@ -100,7 +118,7 @@ pod() {
 expect_pod() {
 	local want=$1 what=$2
 	shift 2
-	pod "$@" | dry_run "$want" "Pod: $what" devstack-order-pods
+	dry_run "$want" "Pod: $what" devstack-order-pods <<<"$(pod "$@")"
 }
 
 # application <name> <namespace> <project> <destination namespace> <repo> [helm values] [sync option]
@@ -146,8 +164,8 @@ done
 kubectl create namespace "$DEST" --dry-run=client -o yaml | quiet kubectl apply -f -
 
 info "checking Pods in order namespaces (manifests/argocd-access.yaml), without exceptions"
-argocd_access "" ""
 C='{"name":"a","image":"alpine"}'
+access "" "" off -- deny '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
 expect_pod allow "plain, in an order namespace" "$CHECK" "{\"containers\":[$C]}"
 expect_pod allow "baseline capability" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"capabilities":{"add":["NET_BIND_SERVICE"]}}}]}'
 expect_pod deny "privileged" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
@@ -170,7 +188,7 @@ expect_pod deny "capability NET_ADMIN" "$CHECK" "$NET_ADMIN"
 expect_pod deny "device /dev/net/tun" "$CHECK" "$(tun /dev/net/tun CharDevice)"
 
 info "checking Pods in order namespaces with the exceptions NET_ADMIN and /dev/net/tun"
-argocd_access NET_ADMIN /dev/net/tun
+access NET_ADMIN /dev/net/tun off -- allow "$NET_ADMIN"
 expect_pod allow "capability NET_ADMIN" "$CHECK" "$NET_ADMIN"
 expect_pod allow "device /dev/net/tun" "$CHECK" "$(tun /dev/net/tun CharDevice)"
 expect_pod deny "/dev/net/tun without type CharDevice" "$CHECK" "$(tun /dev/net/tun)"
@@ -178,20 +196,36 @@ expect_pod deny "/dev/net/tun as a directory" "$CHECK" "$(tun /dev/net/tun Direc
 expect_pod deny "another device" "$CHECK" "$(tun /dev/mem CharDevice)"
 expect_pod deny "capability SYS_ADMIN" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"capabilities":{"add":["SYS_ADMIN"]}}}]}'
 expect_pod deny "privileged" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
+info "checking Pods in order namespaces with ARGOCD_POD_HOST_ACCESS=network, then privileged"
+access "" "" network -- allow "{\"hostNetwork\":true,\"containers\":[$C]}"
+expect_pod allow "host network, access network" "$CHECK" "{\"hostNetwork\":true,\"containers\":[$C]}"
+expect_pod allow "host port, access network" "$CHECK" "{\"containers\":[{\"name\":\"a\",\"image\":\"alpine\",\"ports\":[{\"containerPort\":80,\"hostPort\":8080}]}]}"
+expect_pod deny "host PID, access network" "$CHECK" "{\"hostPID\":true,\"containers\":[$C]}"
+expect_pod deny "privileged, access network" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
+access "" "" privileged -- allow '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
+expect_pod allow "privileged, access privileged" "$CHECK" '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
+expect_pod allow "host PID, access privileged" "$CHECK" "{\"hostPID\":true,\"containers\":[$C]}"
+expect_pod deny "host path, access privileged" "$CHECK" "{\"containers\":[$C],\"volumes\":[{\"name\":\"h\",\"hostPath\":{\"path\":\"/etc\"}}]}"
+if (argocd_access "" "" root 2>/dev/null); then
+	warn "ARGOCD_POD_HOST_ACCESS=root: accepted, expected refused"
+	failures=$((failures + 1))
+else
+	ok "ARGOCD_POD_HOST_ACCESS=root: refused"
+fi
 if (argocd_access SYS_ADMIN "" 2>/dev/null); then
 	warn "ARGOCD_POD_CAPABILITIES=SYS_ADMIN: accepted, expected refused"
 	failures=$((failures + 1))
 else
 	ok "ARGOCD_POD_CAPABILITIES=SYS_ADMIN: refused"
 fi
-argocd_access
+access -- deny '{"containers":[{"name":"a","image":"alpine","securityContext":{"privileged":true}}]}'
 
 info "checking the Applications CRIDGE may create"
 R="$ARGOCD_TEST_REPO"
-application policy-test "$CHECK" openslice "$CHECK" "$R" | dry_run allow "CRIDGE: Application in project openslice" devstack-cridge-applications "${AS[@]}"
-application policy-test "$CHECK" default "$CHECK" "$R" | dry_run deny "CRIDGE: Application in project default" devstack-cridge-applications "${AS[@]}"
-application policy-test "$CHECK" openslice "$CHECK" "$R" "" CreateNamespace=true | dry_run deny "CRIDGE: Application creating its namespace" devstack-cridge-applications "${AS[@]}"
-application policy-test "$ARGOCD_NS" openslice "$CHECK" "$R" | dry_run deny "CRIDGE: Application in the argocd namespace" devstack-cridge-resources "${AS[@]}"
+dry_run allow "CRIDGE: Application in project openslice" devstack-cridge-applications "${AS[@]}" <<<"$(application policy-test "$CHECK" openslice "$CHECK" "$R")"
+dry_run deny "CRIDGE: Application in project default" devstack-cridge-applications "${AS[@]}" <<<"$(application policy-test "$CHECK" default "$CHECK" "$R")"
+dry_run deny "CRIDGE: Application creating its namespace" devstack-cridge-applications "${AS[@]}" <<<"$(application policy-test "$CHECK" openslice "$CHECK" "$R" "" CreateNamespace=true)"
+dry_run deny "CRIDGE: Application in the argocd namespace" devstack-cridge-resources "${AS[@]}" <<<"$(application policy-test "$ARGOCD_NS" openslice "$CHECK" "$R")"
 
 info "checking what Argo CD deploys for the project openslice"
 argocd_project "$ARGOCD_TEST_REPO"
